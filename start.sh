@@ -1,72 +1,89 @@
 #!/bin/bash
 
 # ==========================================
-# 🛠️ 全局配置区
+# 🟢 配置区 (用户必须修改这里)
 # ==========================================
 
-# [优先级 2] (代码预设) 在双引号中填入哪吒指令
+# 1. 你的 GitHub Raw 链接 (脚本需要知道去哪里下载自己来做备份)
+#    请务必修改为你的真实链接！例如: https://raw.githubusercontent.com/你的名字/仓库/main/boot.sh
+MY_SELF_URL="https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/boot.sh"
+
+# 2. 哪吒探针指令预设 (可选)
 PRESET_NEZHA_COMMAND=""
 
-# 🟢 【修改处】：在这里填入你的环境变量
-# 格式：export 变量名="值"
+# 3. 自定义环境变量 (可选)
 export hypt=""
 
-# 定义文件名常量
-NEZHA_CONFIG="nezha.yml"
-BACKUP_FILE="nezha_config.json" # Shell版简化逻辑，主要依赖yml文件
-ARGOSBX_SCRIPT="argosbx.sh"
+# ==========================================
+# 🛠️ 常量定义
+# ==========================================
+INSTALL_PATH="/root/boot.sh"  # 脚本将把自己安装到这里
+NEZHA_CONFIG="/root/nezha.yml"
+ARGOSBX_SCRIPT="/root/argosbx.sh"
 ARGOSBX_URL="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
 TIMEOUT_SECONDS=20
 
 # ==========================================
-# 🟢 1. 初始化与环境设置
+# 📦 1. 自我安装与环境检查 (核心逻辑)
 # ==========================================
+install_self() {
+    echo ">>> [安装] 正在检测本地环境..."
 
-# 锁定工作目录
-# 解释：$(dirname "$0") 获取脚本所在目录，确保后续下载的文件都在脚本旁边
-cd "$(dirname "$(readlink -f "$0")")"
-CURRENT_DIR=$(pwd)
-echo ">>> [初始化] 工作目录已锁定至: $CURRENT_DIR"
+    # 只要检测到从网络启动，或者本地文件和网络版不一致，就重新下载覆盖
+    # 这一步确保了文件实实在在地存在于硬盘上
+    if [ ! -f "$INSTALL_PATH" ]; then
+        echo ">>> [安装] 正在将脚本下载到本地: $INSTALL_PATH"
+        curl -L -o "$INSTALL_PATH" "$MY_SELF_URL"
+        
+        if [ $? -ne 0 ]; then
+            echo ">>> [错误] ❌ 无法下载脚本自身，请检查 MY_SELF_URL 是否填写正确！"
+            # 如果下载失败，为了不报错退出，暂时继续运行内存里的逻辑，但自启会失效
+        else
+            echo ">>> [安装] ✅ 脚本已落地到硬盘。"
+        fi
+    fi
 
-# 解析自定义环境变量 (简单的 key=value 形式在上方 export 即可)
-if [ -n "$hypt" ]; then
-    echo ">>> [环境] 自定义变量 hypt 已加载."
-fi
+    # 🟢 关键：在这里代码内部给自己授权
+    if [ -f "$INSTALL_PATH" ]; then
+        chmod +x "$INSTALL_PATH"
+        echo ">>> [权限] ✅ 已自动赋予执行权限 (chmod +x)。"
+    fi
+}
 
 # ==========================================
-# 🔌 2. 开机自启功能模块
+# 🔌 2. 开机自启功能
 # ==========================================
 add_self_to_startup() {
-    echo -e "\n>>> [自启] 正在检查开机自启配置..."
-    
-    # 获取当前脚本的绝对路径
-    SCRIPT_PATH="$CURRENT_DIR/$(basename "$0")"
-    
-    # 构建 Crontab 命令：重启时(@reboot) -> 进入目录 -> 运行脚本
-    CRON_CMD="@reboot cd $CURRENT_DIR && bash $SCRIPT_PATH >/dev/null 2>&1 &"
-    
-    # 检查是否已存在 (grep -F 固定字符串搜索)
-    if crontab -l 2>/dev/null | grep -Fq "$SCRIPT_PATH"; then
-        echo ">>> [自启] ✅ 检测到已添加过开机自启，跳过写入。"
+    echo -e "\n>>> [自启] 正在配置开机自启..."
+
+    # 确保我们要添加的是硬盘上的那个文件，而不是内存里的流
+    if [ ! -f "$INSTALL_PATH" ]; then
+        echo ">>> [警告] ⚠️ 找不到本地文件，无法设置自启。"
+        return
+    fi
+
+    # 构建命令：重启时进入 /root 目录并运行脚本
+    CRON_CMD="@reboot cd /root && bash $INSTALL_PATH >/dev/null 2>&1 &"
+
+    # 检查是否已存在
+    if crontab -l 2>/dev/null | grep -Fq "$INSTALL_PATH"; then
+        echo ">>> [自启] ✅ 开机自启已存在，跳过。"
     else
-        # 写入新的 crontab
         (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
         if [ $? -eq 0 ]; then
-            echo ">>> [自启] ✅ 成功将脚本加入开机自动启动！"
+            echo ">>> [自启] ✅ 成功设置开机自动启动！"
         else
-            echo ">>> [自启] ❌ 添加失败。"
+            echo ">>> [自启] ❌ 设置失败。"
         fi
     fi
 }
 
 # ==========================================
-# 🛠️ 辅助函数：提取参数
+# 🛠️ 辅助函数
 # ==========================================
-# 解释：模拟 Node.js 的正则提取，从长字符串中提取 NZ_SERVER 等参数
 get_param() {
     local input_str="$1"
     local key="$2"
-    # 使用 grep 和 sed 提取 key=value 中的 value
     echo "$input_str" | grep -oP "$key=\K[\w\.:-]+" 2>/dev/null || \
     echo "$input_str" | sed -n "s/.*$key=\([^ ]*\).*/\1/p"
 }
@@ -76,143 +93,99 @@ get_param() {
 # ==========================================
 start_nezha() {
     local cmd_str="$1"
-    
-    # 提取参数
     local server=$(get_param "$cmd_str" "NZ_SERVER")
     local secret=$(get_param "$cmd_str" "NZ_CLIENT_SECRET")
     local tls=$(get_param "$cmd_str" "NZ_TLS")
     local uuid=$(get_param "$cmd_str" "NZ_UUID")
 
-    # 如果没有服务器或密钥，尝试从现有的 nezha.yml 读取 (简单的兼容性检查)
+    # 必须切换到 /root 目录，保证文件下载在同一个地方
+    cd /root
+
     if [[ -z "$server" || -z "$secret" ]]; then
         if [ -f "$NEZHA_CONFIG" ]; then
-            echo ">>> [探针] 使用现有配置文件启动。"
+            echo ">>> [探针] 使用现有配置启动。"
         else
-            echo ">>> [探针] 缺少参数且无配置文件，跳过哪吒探针。"
+            echo ">>> [探针] 无配置参数，跳过。"
             return
         fi
     fi
 
-    echo -e "\n>>> [探针] 准备启动哪吒探针..."
-    
-    # --- 下载部分 ---
-    # 检测系统架构 (amd64 或 arm64)
+    # 探针下载逻辑
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then NZ_ARCH="amd64"; elif [[ "$ARCH" == "aarch64" ]]; then NZ_ARCH="arm64"; else NZ_ARCH="amd64"; fi
-    
     BIN_FILE="nezha-agent"
     DOWNLOAD_URL="https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${NZ_ARCH}.zip"
 
-    # 如果没有探针文件，则下载
     if [ ! -f "$BIN_FILE" ]; then
-        echo ">>> [下载] 正在下载适配 ${NZ_ARCH} 的探针..."
+        echo ">>> [下载] 下载探针 ($NZ_ARCH)..."
         rm -rf nezha.zip
         curl -L -o nezha.zip "$DOWNLOAD_URL"
-        unzip -o nezha.zip
+        unzip -o nezha.zip >/dev/null 2>&1
         chmod +x "$BIN_FILE"
-        echo ">>> [下载] 完成并已授权！"
     fi
 
-    # --- 配置生成部分 ---
-    # 只有当传入了新参数时，才重新生成配置文件
     if [[ -n "$server" && -n "$secret" ]]; then
-        echo ">>> [配置] 生成新的配置文件..."
         cat > "$NEZHA_CONFIG" <<EOF
 server: ${server}
 client_secret: ${secret}
 tls: ${tls:-false}
 EOF
-        if [ -n "$uuid" ]; then
-            echo "uuid: $uuid" >> "$NEZHA_CONFIG"
-        fi
+        [ -n "$uuid" ] && echo "uuid: $uuid" >> "$NEZHA_CONFIG"
     fi
 
-    # --- 启动部分 ---
-    echo ">>> [启动] 正在后台拉起 nezha-agent..."
-    # 解释：& 符号让程序在后台运行，不阻塞脚本继续执行
     ./"$BIN_FILE" -c "$NEZHA_CONFIG" >/dev/null 2>&1 &
 }
 
 # ==========================================
-# 🚀 4. 主业务 (Argosbx) 逻辑
+# 🚀 4. 主业务逻辑
 # ==========================================
 start_main_script() {
-    echo -e "\n===================================================="
-    echo ">>> [主程序] 正在检查主业务脚本 ($ARGOSBX_SCRIPT) ..."
-    echo "===================================================="
-
-    # 如果文件不存在，自动下载
+    cd /root
+    echo -e "\n>>> [主程序] 检查业务脚本..."
+    
     if [ ! -f "$ARGOSBX_SCRIPT" ]; then
-        echo ">>> [警告] 未检测到脚本文件。"
-        echo ">>> [下载] 正在从 GitHub 拉取..."
+        echo ">>> [下载] 拉取 argosbx.sh ..."
         curl -L -o "$ARGOSBX_SCRIPT" "$ARGOSBX_URL"
-        
-        if [ $? -eq 0 ]; then
-            echo ">>> [下载] ✅ 下载成功！"
-        else
-            echo ">>> [错误] ❌ 下载失败，请检查网络。"
-            return
-        fi
-    else
-        echo ">>> [检测] ✅ 文件已存在。"
     fi
-
+    
     chmod +x "$ARGOSBX_SCRIPT"
     
-    echo ">>> [启动] 正在执行 argosbx.sh ..."
-    # 启动 bash 脚本
-    # 解释：这里我们在后台启动它，然后脚本最后进入保活模式
-    bash "./$ARGOSBX_SCRIPT" &
-    
-    echo ">>> [主程序] 已在后台启动。"
+    echo ">>> [启动] 运行 argosbx.sh ..."
+    bash "$ARGOSBX_SCRIPT" &
 }
 
 # ==========================================
-# 🏁 5. 主入口流程
+# 🏁 5. 入口
 # ==========================================
 main() {
     clear
     echo "===================================================="
-    echo "        多功能启动脚本 (Shell版 - 含自启/自动下载)"
+    echo "      全自动启动脚本 (支持 bash <(curl) 模式)"
     echo "===================================================="
 
-    # 1. 设置自启
+    # 第一步：把自己下载到硬盘并授权 (解决你的痛点)
+    install_self
+
+    # 第二步：设置开机自启
     add_self_to_startup
 
-    # 2. 获取用户输入 (倒计时)
     echo "----------------------------------------------------"
     echo "请选择操作 ($TIMEOUT_SECONDS 秒倒计时):"
-    echo "1. [粘贴] 输入包含 NZ_SERVER=... 的命令并回车"
-    echo "2. [回车] 直接回车或等待 -> 使用预设"
+    echo "1. [输入] 粘贴哪吒命令"
+    echo "2. [回车] 使用预设/旧配置"
     echo "----------------------------------------------------"
 
-    # read -t 用于设置超时时间
     read -t $TIMEOUT_SECONDS -p "请输入 > " USER_INPUT
-
-    # 3. 决策逻辑
+    
     FINAL_CONFIG=""
-    
-    if [ -n "$USER_INPUT" ]; then
-        echo -e "\n>>> [来源] 使用控制台输入。"
-        FINAL_CONFIG="$USER_INPUT"
-    elif [ -n "$PRESET_NEZHA_COMMAND" ]; then
-        echo -e "\n>>> [来源] 使用代码预设变量。"
-        FINAL_CONFIG="$PRESET_NEZHA_COMMAND"
-    else
-        echo -e "\n>>> [提示] 无输入且无预设，尝试读取旧配置或仅启动主程序。"
-    fi
+    if [ -n "$USER_INPUT" ]; then FINAL_CONFIG="$USER_INPUT"; 
+    elif [ -n "$PRESET_NEZHA_COMMAND" ]; then FINAL_CONFIG="$PRESET_NEZHA_COMMAND"; fi
 
-    # 4. 启动模块
-    # 无论有无配置，都尝试运行 start_nezha (函数内部会再次检查参数)
     start_nezha "$FINAL_CONFIG"
-    
-    # 启动主业务
     start_main_script
 
-    echo -e "\n>>> [保活] 脚本进入无限保活模式..."
-    # 解释：tail -f /dev/null 是一个极低资源的命令，用于让容器/脚本不退出
+    echo -e "\n>>> [完成] 脚本已进入后台保活模式。"
     tail -f /dev/null
 }
 
-# 执行主函数
 main
