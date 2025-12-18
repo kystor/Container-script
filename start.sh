@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # ==========================================
-# 🟢 配置区 (用户必须修改这里)
+# 🟢 配置区 (已自动填充)
 # ==========================================
 
-# 1. 你的 GitHub Raw 链接 (脚本需要知道去哪里下载自己来做备份)
-#    请务必修改为你的真实链接！例如: https://raw.githubusercontent.com/你的名字/仓库/main/boot.sh
-MY_SELF_URL="https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh"
+# 1. 脚本的自我更新/下载地址
+# [修正] 已去除 ref/heads 路径，使用标准的 raw 链接格式，确保 curl 能下载
+MY_SELF_URL="https://raw.githubusercontent.com/kystor/Container-script/main/start.sh"
 
-# 2. 哪吒探针指令预设 (可选)
+# 2. 哪吒探针指令预设 (如果不想每次手动输，可以在这里填入 NZ_SERVER=xxx...)
 PRESET_NEZHA_COMMAND=""
 
 # 3. 自定义环境变量 (可选)
@@ -17,73 +17,90 @@ export hypt=""
 # ==========================================
 # 🛠️ 常量定义
 # ==========================================
-INSTALL_PATH="/root/boot.sh"  # 脚本将把自己安装到这里
+# [修正] 文件名统一修改为 start.sh
+INSTALL_PATH="/root/start.sh"
 NEZHA_CONFIG="/root/nezha.yml"
 ARGOSBX_SCRIPT="/root/argosbx.sh"
 ARGOSBX_URL="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
 TIMEOUT_SECONDS=20
 
 # ==========================================
-# 📦 1. 自我安装与环境检查 (核心逻辑)
+# 🚑 0. 环境依赖修复 (Alpine 救砖逻辑)
+# ==========================================
+check_dependencies() {
+    echo ">>> [环境] 正在检查系统依赖..."
+    
+    # 针对 Alpine Linux 的核心修复逻辑
+    if [ -f /etc/alpine-release ]; then
+        echo ">>> [系统] 检测到 Alpine Linux，正在安装兼容性依赖 (gcompat)..."
+        # 安装 gcompat 和 libstdc++ 以解决 "Terminated" 和进程崩溃问题
+        apk update
+        apk add --no-cache bash curl wget ca-certificates tar unzip gcompat libstdc++ procps
+        
+        # 建立软连接，防止脚本找不到 /bin/bash
+        if [ ! -f /bin/bash ]; then ln -s /usr/bin/bash /bin/bash; fi
+        echo ">>> [系统] Alpine 依赖修复完成。"
+    fi
+
+    # 针对 Debian/Ubuntu 的基础依赖检查
+    if [ -f /etc/debian_version ]; then
+        if ! command -v curl &> /dev/null; then
+            apt-get update && apt-get install -y curl wget unzip
+        fi
+    fi
+}
+
+# ==========================================
+# 📦 1. 自我安装 (实现无权限启动 -> 有权限自启)
 # ==========================================
 install_self() {
-    echo ">>> [安装] 正在检测本地环境..."
-
-    # 只要检测到从网络启动，或者本地文件和网络版不一致，就重新下载覆盖
-    # 这一步确保了文件实实在在地存在于硬盘上
+    # 如果本地没有这个文件，或者想强制更新，都会执行下载
     if [ ! -f "$INSTALL_PATH" ]; then
         echo ">>> [安装] 正在将脚本下载到本地: $INSTALL_PATH"
+        
+        # 使用 curl 下载自身
         curl -L -o "$INSTALL_PATH" "$MY_SELF_URL"
         
         if [ $? -ne 0 ]; then
-            echo ">>> [错误] ❌ 无法下载脚本自身，请检查 MY_SELF_URL 是否填写正确！"
-            # 如果下载失败，为了不报错退出，暂时继续运行内存里的逻辑，但自启会失效
+            echo ">>> [警告] ❌ 下载失败！请检查 GitHub 仓库中是否存在 start.sh 文件，且链接正确。"
+            echo "    目标链接: $MY_SELF_URL"
         else
-            echo ">>> [安装] ✅ 脚本已落地到硬盘。"
+            chmod +x "$INSTALL_PATH"
+            echo ">>> [安装] ✅ 脚本已落地并授权。"
         fi
-    fi
-
-    # 🟢 关键：在这里代码内部给自己授权
-    if [ -f "$INSTALL_PATH" ]; then
+    else
+        # 确保权限存在
         chmod +x "$INSTALL_PATH"
-        echo ">>> [权限] ✅ 已自动赋予执行权限 (chmod +x)。"
     fi
 }
 
 # ==========================================
-# 🔌 2. 开机自启功能
+# 🔌 2. 开机自启
 # ==========================================
 add_self_to_startup() {
-    echo -e "\n>>> [自启] 正在配置开机自启..."
-
-    # 确保我们要添加的是硬盘上的那个文件，而不是内存里的流
-    if [ ! -f "$INSTALL_PATH" ]; then
-        echo ">>> [警告] ⚠️ 找不到本地文件，无法设置自启。"
-        return
-    fi
-
-    # 构建命令：重启时进入 /root 目录并运行脚本
+    # 只有文件落地了，才能设置自启
+    [ ! -f "$INSTALL_PATH" ] && return
+    
+    # 构造自启命令：重启后 -> 进目录 -> 后台运行脚本
     CRON_CMD="@reboot cd /root && bash $INSTALL_PATH >/dev/null 2>&1 &"
-
-    # 检查是否已存在
+    
+    # 检查是否已经添加过
     if crontab -l 2>/dev/null | grep -Fq "$INSTALL_PATH"; then
-        echo ">>> [自启] ✅ 开机自启已存在，跳过。"
+        echo ">>> [自启] ✅ 开机自启已配置。"
     else
+        # 添加到 crontab
         (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
-        if [ $? -eq 0 ]; then
-            echo ">>> [自启] ✅ 成功设置开机自动启动！"
-        else
-            echo ">>> [自启] ❌ 设置失败。"
-        fi
+        echo ">>> [自启] ✅ 已成功添加开机自启。"
     fi
 }
 
 # ==========================================
-# 🛠️ 辅助函数
+# 🛠️ 辅助函数: 参数提取
 # ==========================================
 get_param() {
     local input_str="$1"
     local key="$2"
+    # 尝试提取 key=value 的值
     echo "$input_str" | grep -oP "$key=\K[\w\.:-]+" 2>/dev/null || \
     echo "$input_str" | sed -n "s/.*$key=\([^ ]*\).*/\1/p"
 }
@@ -98,32 +115,31 @@ start_nezha() {
     local tls=$(get_param "$cmd_str" "NZ_TLS")
     local uuid=$(get_param "$cmd_str" "NZ_UUID")
 
-    # 必须切换到 /root 目录，保证文件下载在同一个地方
     cd /root
-
+    
+    # 如果没有传入新参数，尝试读取旧配置
     if [[ -z "$server" || -z "$secret" ]]; then
         if [ -f "$NEZHA_CONFIG" ]; then
             echo ">>> [探针] 使用现有配置启动。"
         else
-            echo ">>> [探针] 无配置参数，跳过。"
-            return
+            return # 无参数也无配置，直接跳过
         fi
     fi
 
-    # 探针下载逻辑
+    # 下载探针文件
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then NZ_ARCH="amd64"; elif [[ "$ARCH" == "aarch64" ]]; then NZ_ARCH="arm64"; else NZ_ARCH="amd64"; fi
     BIN_FILE="nezha-agent"
-    DOWNLOAD_URL="https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${NZ_ARCH}.zip"
-
+    
     if [ ! -f "$BIN_FILE" ]; then
-        echo ">>> [下载] 下载探针 ($NZ_ARCH)..."
-        rm -rf nezha.zip
-        curl -L -o nezha.zip "$DOWNLOAD_URL"
+        echo ">>> [探针] 下载 Agent ($NZ_ARCH)..."
+        curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${NZ_ARCH}.zip"
         unzip -o nezha.zip >/dev/null 2>&1
         chmod +x "$BIN_FILE"
+        rm -f nezha.zip
     fi
 
+    # 生成配置文件
     if [[ -n "$server" && -n "$secret" ]]; then
         cat > "$NEZHA_CONFIG" <<EOF
 server: ${server}
@@ -133,40 +149,47 @@ EOF
         [ -n "$uuid" ] && echo "uuid: $uuid" >> "$NEZHA_CONFIG"
     fi
 
-    ./"$BIN_FILE" -c "$NEZHA_CONFIG" >/dev/null 2>&1 &
+    # 启动探针 (使用 nohup 后台静默运行)
+    nohup ./"$BIN_FILE" -c "$NEZHA_CONFIG" >/dev/null 2>&1 &
 }
 
 # ==========================================
-# 🚀 4. 主业务逻辑
+# 🚀 4. 主业务 (Argosbx)
 # ==========================================
 start_main_script() {
     cd /root
-    echo -e "\n>>> [主程序] 检查业务脚本..."
+    echo -e "\n>>> [主程序] 启动 Argosbx..."
     
+    # 下载脚本
     if [ ! -f "$ARGOSBX_SCRIPT" ]; then
-        echo ">>> [下载] 拉取 argosbx.sh ..."
         curl -L -o "$ARGOSBX_SCRIPT" "$ARGOSBX_URL"
     fi
-    
     chmod +x "$ARGOSBX_SCRIPT"
     
-    echo ">>> [启动] 运行 argosbx.sh ..."
-    bash "$ARGOSBX_SCRIPT" &
+    # 启动脚本
+    # 使用 nohup + 后台运行，并将日志输出到 argosbx.log，防止阻塞主流程
+    nohup bash "$ARGOSBX_SCRIPT" >/root/argosbx.log 2>&1 &
+    
+    echo ">>> [启动] 业务脚本已在后台运行。"
+    echo ">>> [日志] 你可以使用 'tail -f /root/argosbx.log' 查看运行情况。"
 }
 
 # ==========================================
-# 🏁 5. 入口
+# 🏁 5. 入口函数
 # ==========================================
 main() {
     clear
     echo "===================================================="
-    echo "      全自动启动脚本 (支持 bash <(curl) 模式)"
+    echo "      全自动启动脚本 (Alpine 兼容修复版)"
     echo "===================================================="
 
-    # 第一步：把自己下载到硬盘并授权 (解决你的痛点)
+    # 1. 优先修复系统依赖 (Alpine 救星)
+    check_dependencies
+
+    # 2. 将脚本安装到硬盘
     install_self
 
-    # 第二步：设置开机自启
+    # 3. 设置开机自启
     add_self_to_startup
 
     echo "----------------------------------------------------"
@@ -181,10 +204,12 @@ main() {
     if [ -n "$USER_INPUT" ]; then FINAL_CONFIG="$USER_INPUT"; 
     elif [ -n "$PRESET_NEZHA_COMMAND" ]; then FINAL_CONFIG="$PRESET_NEZHA_COMMAND"; fi
 
+    # 启动各模块
     start_nezha "$FINAL_CONFIG"
     start_main_script
 
     echo -e "\n>>> [完成] 脚本已进入后台保活模式。"
+    echo ">>> [保活] 正在运行 tail -f /dev/null 防止容器退出..."
     tail -f /dev/null
 }
 
