@@ -5,15 +5,10 @@
 # ==========================================
 
 # 🟢 【配置 1】：哪吒指令预设区
-# 示例：PRESET_NEZHA_COMMAND="export NZ_SERVER=nz.example.com NZ_CLIENT_SECRET=123 NZ_TLS=true"
 PRESET_NEZHA_COMMAND=""
 
-# 🟢 【配置 2】：自定义环境变量 (通用)
-# 解释：这里填入的内容会被脚本自动解析并设为环境变量。
-# 格式：变量名="值" (多个变量用空格隔开)
-# ✅ 修改：外层使用单引号，内层使用双引号，这样更方便阅读
-# 示例 1：CUSTOM_VARIABLES='hypt="123456"'
-# 示例 2：CUSTOM_VARIABLES='hypt="my-token" tupt="other-value"'
+# 🟢 【配置 2】：自定义环境变量
+# 格式：外层单引号，内层双引号
 CUSTOM_VARIABLES='hypt=""'
 
 # 🟢 【核心】：脚本自身的远程下载地址
@@ -27,15 +22,13 @@ LOCAL_SCRIPT="$HOME/start.sh"
 cd "$HOME" || exit
 echo ">>> [初始化] 工作目录已锁定至: $HOME"
 
-# 🟢 核心逻辑：加载自定义变量
-# 1. 优先加载文件内配置的 CUSTOM_VARIABLES
+# 加载自定义变量
 if [ -n "$CUSTOM_VARIABLES" ]; then
     echo ">>> [环境] 检测到预设变量字符串，正在加载..."
-    # 使用 eval export 动态将字符串内的所有 变量="值" 导出为环境变量
     eval "export $CUSTOM_VARIABLES"
 fi
 
-# 2. 打印当前关键变量状态 (仅作调试显示)
+# 打印变量检查
 echo ">>> [环境] 变量加载检查："
 env | grep -E "hypt=|tupt=" || echo "    (未检测到 hypt/tupt，如使用了其他变量名请忽略此提示)"
 
@@ -46,15 +39,10 @@ setup_persistence() {
     echo ""
     echo ">>> [系统] 正在检查脚本完整性与开机自启..."
 
-    # 强制更新本地文件
     curl -L -s -o "$LOCAL_SCRIPT" "$SELF_URL"
     chmod +x "$LOCAL_SCRIPT"
 
-    # 构建开机自启命令
-    # 逻辑：重启时，我们需要把当前的 CUSTOM_VARIABLES 也带进去
     if [ -n "$CUSTOM_VARIABLES" ]; then
-        # 注意：这里为了保证重启后变量值的引号正确，我们对变量再次进行转义处理
-        # 确保写入 Crontab 的命令格式正确
         CRON_CMD="@reboot eval \"export $CUSTOM_VARIABLES\"; /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
     else
         CRON_CMD="@reboot /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
@@ -138,7 +126,7 @@ start_argosbx() {
         chmod +x "$script_name"
     fi
 
-    # 关键：这里直接运行，它会自动继承当前环境里所有的变量
+    # 运行主脚本
     ./"$script_name"
 }
 
@@ -147,7 +135,7 @@ start_argosbx() {
 # ==========================================
 clear
 echo "===================================================="
-echo "      Container-Script (通用版)"
+echo "      Container-Script (Shell 版)"
 echo "===================================================="
 
 setup_persistence
@@ -158,10 +146,12 @@ BACKUP_FILE="nezha.conf"
 
 if [ -f "$BACKUP_FILE" ]; then CACHED_CMD=$(cat "$BACKUP_FILE"); fi
 
+# 🟢 【修改处】：这里完美还原了 JS 版的三行提示
 echo "----------------------------------------------------"
 echo "请选择操作 ($TIMEOUT 秒倒计时):"
-echo "1. [粘贴] 粘贴 'export NZ_SERVER=...' (优先级最高)"
-echo "2. [回车] 使用 GitHub 预设或本地缓存配置"
+echo "1. [粘贴] 输入新命令并回车 -> 使用新命令 (优先级最高)"
+echo "2. [回车] 直接按回车          -> 跳过等待，使用预设或备份"
+echo "3. [等待] 倒计时结束          -> 自动使用预设或备份"
 echo "----------------------------------------------------"
 
 read -t $TIMEOUT -p "请输入 > " USER_INPUT
@@ -179,6 +169,9 @@ fi
 start_nezha "$CONFIG_SOURCE"
 start_argosbx
 
+# 🟢 不阻塞保活
 echo ""
-echo ">>> [保活] 脚本进入无限循环模式..."
-while true; do sleep 3600; done
+echo ">>> [保活] 正在启动后台保活进程..."
+nohup sh -c 'while true; do sleep 3600; done' >/dev/null 2>&1 &
+
+echo ">>> [完成] 脚本执行结束，终端已释放！"
