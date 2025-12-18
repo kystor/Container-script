@@ -1,12 +1,76 @@
 #!/bin/bash
 
 # ==========================================
+# 🟢 模块 0：环境自检与依赖修复 (新增功能)
+# ==========================================
+# 这一部分会在脚本最开始运行，确保后续命令都有工具可用
+check_dependencies() {
+    echo ">>> [系统] 正在检查环境依赖..."
+
+    # 1. 设置用户级 bin 目录 (解决无 Root 权限无法安装软件的问题)
+    export PATH="$HOME/bin:$PATH"
+    mkdir -p "$HOME/bin"
+
+    # 2. 检测并修复 unzip (解压工具)
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo ">>> [依赖] 未检测到 unzip，正在尝试修复..."
+        
+        # 方案 A: 尝试下载 Busybox (免安装版工具包)
+        # 这里的链接是一个静态编译的二进制文件，包含 unzip 功能
+        curl -L -s -o "$HOME/bin/unzip" https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-x86_64
+        
+        if [ -s "$HOME/bin/unzip" ]; then
+            chmod +x "$HOME/bin/unzip"
+            echo ">>> [依赖] ✅ 已下载免安装版 unzip。"
+        else
+            # 方案 B: Java (jar) 兜底策略
+            # 如果无法下载 busybox，但系统里有 Java，利用 jar 命令解压
+            if command -v jar >/dev/null 2>&1; then
+                echo ">>> [依赖] ⚠️ 下载失败，切换为 Java (jar) 兼容模式。"
+                
+                # 定义一个名为 unzip 的函数，拦截脚本后续的 unzip 调用
+                function unzip() {
+                    # 遍历参数，找到 .zip 结尾的文件名 (因为 jar 不需要 -o -q 等参数)
+                    local zip_file=""
+                    for arg in "$@"; do
+                        if [[ "$arg" == *.zip ]]; then zip_file="$arg"; break; fi
+                    done
+                    
+                    if [ -n "$zip_file" ]; then
+                        echo " -> [Java] 正在使用 jar 解压: $zip_file"
+                        jar xf "$zip_file"
+                    else
+                        echo " -> [错误] Java 模式未找到 zip 文件参数。"
+                    fi
+                }
+                export -f unzip # 导出函数使其全局生效
+            else
+                echo ">>> [错误] ❌ 无法下载 unzip 且未找到 Java，解压可能会失败！"
+            fi
+        fi
+    else
+        echo ">>> [依赖] ✅ 系统已有 unzip。"
+    fi
+
+    # 3. 简单的 Cron 检测 (如果缺失，尝试下载 busybox 补充，但通常受限于权限)
+    if ! command -v crontab >/dev/null 2>&1; then
+        if [ -f "$HOME/bin/unzip" ]; then # 如果刚才下载了 busybox (也就是那个 unzip 文件)
+            ln -s "$HOME/bin/unzip" "$HOME/bin/crontab" 2>/dev/null
+        fi
+    fi
+}
+
+# 立即执行依赖检查
+check_dependencies
+
+# ==========================================
 # 🟢 脚本说明与配置区
 # ==========================================
 # 这是一个集成了哪吒探针和 Argosbx 业务的自动化脚本。
 # 修改记录：
 # 1. [2025-12-18] 优化配置逻辑：直接读取 nezha.yml。
 # 2. 修正优先级逻辑：输入 > 预设 > 本地文件。
+# 3. 新增依赖自动修复 (Unzip/Java Fallback)。
 
 # 🟢 【配置 1】：哪吒指令预设区 (优先级 No.2)
 # 如果这里填了内容，且你运行时没手动输入，它将强制覆盖本地的 nezha.yml
@@ -42,6 +106,7 @@ setup_persistence() {
     echo ">>> [系统] 正在检查脚本完整性与开机自启..."
 
     # 下载最新版脚本覆盖当前文件 (保持脚本最新)
+    # 注意：这里也依赖 curl，通常容器都有，若无则需在 check_dependencies 添加 curl 检测
     curl -L -s -o "$LOCAL_SCRIPT" "$SELF_URL"
     chmod +x "$LOCAL_SCRIPT"
 
@@ -54,15 +119,20 @@ setup_persistence() {
     fi
 
     # 检查是否已经添加过任务
-    if crontab -l 2>/dev/null | grep -q "$LOCAL_SCRIPT"; then
+    # 使用 2>/dev/null 屏蔽 crontab 可能产生的 "command not found" 报错
+    if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "$LOCAL_SCRIPT"; then
         echo ">>> [自启] ✅ 开机自启任务已存在，跳过。"
     else
         # 添加任务到 crontab
-        (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
-        if [ $? -eq 0 ]; then
-            echo ">>> [自启] ✅ 成功添加开机自启任务！"
+        if command -v crontab >/dev/null 2>&1; then
+            (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
+            if [ $? -eq 0 ]; then
+                echo ">>> [自启] ✅ 成功添加开机自启任务！"
+            else
+                echo ">>> [自启] ❌ 添加失败 (可能是权限受限，容器内常见)。"
+            fi
         else
-            echo ">>> [自启] ❌ 添加失败 (可能是权限受限，容器内常见)。"
+            echo ">>> [自启] ⚠️ 未找到 crontab 工具，跳过自启设置。"
         fi
     fi
 }
@@ -115,7 +185,10 @@ start_nezha() {
     if [ ! -f "$bin_file" ]; then
         echo ">>> [下载] 正在下载哪吒探针 (${arch_code})..."
         curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${arch_code}.zip"
+        
+        # 🟢 调用 unzip (此时它可能是系统自带的，也可能是我们要的 busybox，或者是 Java 函数)
         unzip -o nezha.zip > /dev/null
+        
         chmod +x "$bin_file"
         rm -f nezha.zip
     fi
