@@ -1,198 +1,184 @@
 #!/bin/bash
 
 # ==========================================
-# 🟢 配置区 (已自动填充)
+# 🛠️ 全局配置区
 # ==========================================
 
-# 1. 脚本的自我更新/下载地址
-MY_SELF_URL="https://raw.githubusercontent.com/kystor/Container-script/main/start.sh"
-
-# 2. 哪吒探针指令预设
+# 🟢 【配置 1】：哪吒指令预设区
+# 示例：PRESET_NEZHA_COMMAND="export NZ_SERVER=nz.example.com NZ_CLIENT_SECRET=123 NZ_TLS=true"
 PRESET_NEZHA_COMMAND=""
 
-# 3. 自定义环境变量
-export hypt=""
+# 🟢 【配置 2】：自定义环境变量 (通用)
+# 解释：这里填入的内容会被脚本自动解析并设为环境变量。
+# 格式：变量名="值" (多个变量用空格隔开)
+# ✅ 修改：外层使用单引号，内层使用双引号，这样更方便阅读
+# 示例 1：CUSTOM_VARIABLES='hypt="123456"'
+# 示例 2：CUSTOM_VARIABLES='hypt="my-token" tupt="other-value"'
+CUSTOM_VARIABLES='hypt=""'
+
+# 🟢 【核心】：脚本自身的远程下载地址
+SELF_URL="https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh"
+LOCAL_SCRIPT="$HOME/start.sh"
 
 # ==========================================
-# 🛠️ 常量定义
+# 📦 基础环境与变量加载
 # ==========================================
-INSTALL_PATH="/root/start.sh"
-NEZHA_CONFIG="/root/nezha.yml"
-ARGOSBX_SCRIPT="/root/argosbx.sh"
-ARGOSBX_URL="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
-TIMEOUT_SECONDS=20
+
+cd "$HOME" || exit
+echo ">>> [初始化] 工作目录已锁定至: $HOME"
+
+# 🟢 核心逻辑：加载自定义变量
+# 1. 优先加载文件内配置的 CUSTOM_VARIABLES
+if [ -n "$CUSTOM_VARIABLES" ]; then
+    echo ">>> [环境] 检测到预设变量字符串，正在加载..."
+    # 使用 eval export 动态将字符串内的所有 变量="值" 导出为环境变量
+    eval "export $CUSTOM_VARIABLES"
+fi
+
+# 2. 打印当前关键变量状态 (仅作调试显示)
+echo ">>> [环境] 变量加载检查："
+env | grep -E "hypt=|tupt=" || echo "    (未检测到 hypt/tupt，如使用了其他变量名请忽略此提示)"
 
 # ==========================================
-# 🚑 0. 环境依赖修复 (Alpine 救砖逻辑)
+# 0. 🔌 自我安装与开机自启
 # ==========================================
-check_dependencies() {
-    echo ">>> [环境] 正在检查系统依赖..."
-    
-    # 针对 Alpine Linux 的核心修复逻辑
-    if [ -f /etc/alpine-release ]; then
-        echo ">>> [系统] 检测到 Alpine Linux，正在安装兼容性依赖 (gcompat)..."
-        
-        # 🟢 [修改点 1] 静默安装：添加了 >/dev/null 2>&1
-        # 这样就不会刷屏 fetch ... Installing ... 这些信息了
-        apk update >/dev/null 2>&1
-        apk add --no-cache bash curl wget ca-certificates tar unzip gcompat libstdc++ procps >/dev/null 2>&1
-        
-        # 建立软连接
-        if [ ! -f /bin/bash ]; then ln -s /usr/bin/bash /bin/bash; fi
-        echo ">>> [系统] Alpine 依赖修复完成。"
-    fi
+setup_persistence() {
+    echo ""
+    echo ">>> [系统] 正在检查脚本完整性与开机自启..."
 
-    # 针对 Debian/Ubuntu 的基础依赖检查
-    if [ -f /etc/debian_version ]; then
-        if ! command -v curl &> /dev/null; then
-            apt-get update >/dev/null 2>&1 && apt-get install -y curl wget unzip >/dev/null 2>&1
-        fi
-    fi
-}
+    # 强制更新本地文件
+    curl -L -s -o "$LOCAL_SCRIPT" "$SELF_URL"
+    chmod +x "$LOCAL_SCRIPT"
 
-# ==========================================
-# 📦 1. 自我安装
-# ==========================================
-install_self() {
-    if [ ! -f "$INSTALL_PATH" ]; then
-        echo ">>> [安装] 正在将脚本下载到本地: $INSTALL_PATH"
-        curl -L -o "$INSTALL_PATH" "$MY_SELF_URL"
-        
-        if [ $? -ne 0 ]; then
-            echo ">>> [警告] ❌ 下载失败！请检查链接。"
-        else
-            chmod +x "$INSTALL_PATH"
-            echo ">>> [安装] ✅ 脚本已落地并授权。"
-        fi
+    # 构建开机自启命令
+    # 逻辑：重启时，我们需要把当前的 CUSTOM_VARIABLES 也带进去
+    if [ -n "$CUSTOM_VARIABLES" ]; then
+        # 注意：这里为了保证重启后变量值的引号正确，我们对变量再次进行转义处理
+        # 确保写入 Crontab 的命令格式正确
+        CRON_CMD="@reboot eval \"export $CUSTOM_VARIABLES\"; /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
     else
-        chmod +x "$INSTALL_PATH"
+        CRON_CMD="@reboot /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
     fi
-}
 
-# ==========================================
-# 🔌 2. 开机自启
-# ==========================================
-add_self_to_startup() {
-    [ ! -f "$INSTALL_PATH" ] && return
-    
-    # 注意：这里的自启命令依然保留 >/dev/null，防止重启时系统日志爆炸
-    # 但我们手动运行时，是在前台运行的，能看到输出
-    CRON_CMD="@reboot cd /root && bash $INSTALL_PATH >/dev/null 2>&1 &"
-    
-    if crontab -l 2>/dev/null | grep -Fq "$INSTALL_PATH"; then
-        echo ">>> [自启] ✅ 开机自启已配置。"
+    if crontab -l 2>/dev/null | grep -q "$LOCAL_SCRIPT"; then
+        echo ">>> [自启] ✅ 开机自启任务已存在，跳过。"
     else
         (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
-        echo ">>> [自启] ✅ 已成功添加开机自启。"
+        if [ $? -eq 0 ]; then
+            echo ">>> [自启] ✅ 成功添加开机自启任务！"
+        else
+            echo ">>> [自启] ❌ 添加失败 (可能是权限受限)。"
+        fi
     fi
 }
 
 # ==========================================
-# 🛠️ 辅助函数
-# ==========================================
-get_param() {
-    local input_str="$1"
-    local key="$2"
-    echo "$input_str" | grep -oP "$key=\K[\w\.:-]+" 2>/dev/null || \
-    echo "$input_str" | sed -n "s/.*$key=\([^ ]*\).*/\1/p"
-}
-
-# ==========================================
-# 🛡️ 3. 哪吒探针逻辑
+# 1. 🛡️ 哪吒探针逻辑
 # ==========================================
 start_nezha() {
     local cmd_str="$1"
-    local server=$(get_param "$cmd_str" "NZ_SERVER")
-    local secret=$(get_param "$cmd_str" "NZ_CLIENT_SECRET")
-    local tls=$(get_param "$cmd_str" "NZ_TLS")
-    local uuid=$(get_param "$cmd_str" "NZ_UUID")
-
-    cd /root
-    
-    if [[ -z "$server" || -z "$secret" ]]; then
-        if [ -f "$NEZHA_CONFIG" ]; then
-            echo ">>> [探针] 使用现有配置启动。"
-        else
-            return 
-        fi
+    if [ -z "$cmd_str" ]; then
+        echo ">>> [探针] 未提供配置，跳过哪吒探针启动。"
+        return
     fi
 
-    ARCH=$(uname -m)
-    if [[ "$ARCH" == "x86_64" ]]; then NZ_ARCH="amd64"; elif [[ "$ARCH" == "aarch64" ]]; then NZ_ARCH="arm64"; else NZ_ARCH="amd64"; fi
-    BIN_FILE="nezha-agent"
+    echo ""
+    echo ">>> [探针] 正在解析配置并准备启动..."
+
+    local server=$(echo "$cmd_str" | grep -o 'NZ_SERVER=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
+    local secret=$(echo "$cmd_str" | grep -o 'NZ_CLIENT_SECRET=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
+    local tls=$(echo "$cmd_str" | grep -o 'NZ_TLS=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
     
-    if [ ! -f "$BIN_FILE" ]; then
-        echo ">>> [探针] 下载 Agent ($NZ_ARCH)..."
-        curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${NZ_ARCH}.zip"
-        unzip -o nezha.zip >/dev/null 2>&1
-        chmod +x "$BIN_FILE"
+    if [ -z "$tls" ]; then tls="false"; fi
+
+    if [ -z "$server" ] || [ -z "$secret" ]; then
+        echo ">>> [错误] 无法解析 Server 或 Secret。"
+        return
+    fi
+
+    local arch=$(uname -m)
+    local arch_code="amd64"
+    if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then arch_code="arm64"; fi
+    
+    local bin_file="nezha-agent"
+    local config_file="nezha.yml"
+
+    if [ ! -f "$bin_file" ]; then
+        echo ">>> [下载] 正在下载哪吒探针 (${arch_code})..."
+        curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${arch_code}.zip"
+        unzip -o nezha.zip > /dev/null
+        chmod +x "$bin_file"
         rm -f nezha.zip
     fi
 
-    if [[ -n "$server" && -n "$secret" ]]; then
-        cat > "$NEZHA_CONFIG" <<EOF
-server: ${server}
-client_secret: ${secret}
-tls: ${tls:-false}
+    cat > "$config_file" <<EOF
+server: $server
+client_secret: $secret
+tls: $tls
 EOF
-        [ -n "$uuid" ] && echo "uuid: $uuid" >> "$NEZHA_CONFIG"
+
+    echo ">>> [启动] 拉起 Nezha Agent..."
+    ./"$bin_file" -c "$config_file" >/dev/null 2>&1 &  
+}
+
+# ==========================================
+# 2. 🚀 主业务逻辑 (Argosbx)
+# ==========================================
+start_argosbx() {
+    echo ""
+    echo "===================================================="
+    echo ">>> [主程序] 启动 Argosbx 业务脚本"
+    echo "===================================================="
+    
+    local script_name="argosbx.sh"
+    local script_url="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
+
+    if [ ! -f "$script_name" ]; then
+        curl -L -o "$script_name" "$script_url"
+        chmod +x "$script_name"
     fi
 
-    # 🟢 [修改点 2] 去除 >/dev/null，直接后台运行
-    # 输出将直接打印到当前终端
-    ./"$BIN_FILE" -c "$NEZHA_CONFIG" &
+    # 关键：这里直接运行，它会自动继承当前环境里所有的变量
+    ./"$script_name"
 }
 
 # ==========================================
-# 🚀 4. 主业务 (Argosbx)
+# 🏁 脚本入口
 # ==========================================
-start_main_script() {
-    cd /root
-    echo -e "\n>>> [主程序] 启动 Argosbx..."
-    
-    if [ ! -f "$ARGOSBX_SCRIPT" ]; then
-        curl -L -o "$ARGOSBX_SCRIPT" "$ARGOSBX_URL"
-    fi
-    chmod +x "$ARGOSBX_SCRIPT"
-    
-    # 🟢 [修改点 3] 完全去除 nohup 和重定向
-    # 这样 Argosbx 的所有彩色输出、报错、进度条都会直接显示在你的屏幕上
-    bash "$ARGOSBX_SCRIPT" &
-    
-    echo ">>> [启动] 业务脚本已在后台启动 (输出已释放)。"
-}
+clear
+echo "===================================================="
+echo "      Container-Script (通用版)"
+echo "===================================================="
 
-# ==========================================
-# 🏁 5. 入口函数
-# ==========================================
-main() {
-    clear
-    echo "===================================================="
-    echo "      全自动启动脚本 (输出增强版)"
-    echo "===================================================="
+setup_persistence
 
-    check_dependencies
-    install_self
-    add_self_to_startup
+CONFIG_SOURCE=""
+TIMEOUT=20
+BACKUP_FILE="nezha.conf"
 
-    echo "----------------------------------------------------"
-    echo "请选择操作 ($TIMEOUT_SECONDS 秒倒计时):"
-    echo "1. [输入] 粘贴哪吒命令"
-    echo "2. [回车] 使用预设/旧配置"
-    echo "----------------------------------------------------"
+if [ -f "$BACKUP_FILE" ]; then CACHED_CMD=$(cat "$BACKUP_FILE"); fi
 
-    read -t $TIMEOUT_SECONDS -p "请输入 > " USER_INPUT
-    
-    FINAL_CONFIG=""
-    if [ -n "$USER_INPUT" ]; then FINAL_CONFIG="$USER_INPUT"; 
-    elif [ -n "$PRESET_NEZHA_COMMAND" ]; then FINAL_CONFIG="$PRESET_NEZHA_COMMAND"; fi
+echo "----------------------------------------------------"
+echo "请选择操作 ($TIMEOUT 秒倒计时):"
+echo "1. [粘贴] 粘贴 'export NZ_SERVER=...' (优先级最高)"
+echo "2. [回车] 使用 GitHub 预设或本地缓存配置"
+echo "----------------------------------------------------"
 
-    start_nezha "$FINAL_CONFIG"
-    start_main_script
+read -t $TIMEOUT -p "请输入 > " USER_INPUT
+echo ""
 
-    echo -e "\n>>> [完成] 脚本已进入后台保活模式。"
-    # 即使这里有 tail -f，上面的后台进程 (&) 依然可以往屏幕上打印信息
-    tail -f /dev/null
-}
+if [ -n "$USER_INPUT" ]; then
+    CONFIG_SOURCE="$USER_INPUT"
+    echo "$USER_INPUT" > "$BACKUP_FILE"
+elif [ -n "$PRESET_NEZHA_COMMAND" ]; then
+    CONFIG_SOURCE="$PRESET_NEZHA_COMMAND"
+elif [ -n "$CACHED_CMD" ]; then
+    CONFIG_SOURCE="$CACHED_CMD"
+fi
 
-main
+start_nezha "$CONFIG_SOURCE"
+start_argosbx
+
+echo ""
+echo ">>> [保活] 脚本进入无限循环模式..."
+while true; do sleep 3600; done
