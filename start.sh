@@ -6,7 +6,7 @@
 
 # 1. 你的 GitHub Raw 链接 (脚本需要知道去哪里下载自己来做备份)
 #    请务必修改为你的真实链接！例如: https://raw.githubusercontent.com/你的名字/仓库/main/boot.sh
-MY_SELF_URL="https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/boot.sh"
+MY_SELF_URL="https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh"
 
 # 2. 哪吒探针指令预设 (可选)
 PRESET_NEZHA_COMMAND=""
