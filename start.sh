@@ -48,7 +48,7 @@ check_dependencies
 # 🟢 脚本说明与配置区
 # ==========================================
 # [更新记录]
-# 2025-12-18: 移除所有子进程输出屏蔽 (> /dev/null)，保留真实日志。
+# 2025-12-18: 修复 argosbx 调用参数缺失导致的输出不全问题；优化静默下载逻辑。
 
 # 🟢 【配置 1】：哪吒指令预设区
 PRESET_NEZHA_COMMAND=""
@@ -211,19 +211,29 @@ start_argosbx() {
         fi
     fi
 
-    echo ">>> [主程序] 正在下载并运行脚本..."
-    
+    # [修改逻辑] 下载逻辑优化
     local script_name="argosbx.sh"
     local script_url="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
 
-    if [ ! -f "$script_name" ]; then
-        # [修改] 移除 curl 的静默模式 (可选)，这里保持基本下载显示
+    # 判断文件是否存在
+    if [ -f "$script_name" ]; then
+        # 如果存在，什么都不做，完全静默
+        :
+    else
+        # 如果不存在，才输出提示并下载
+        echo ">>> [下载] 本地未找到脚本，正在下载 Argosbx..."
         curl -L -o "$script_name" "$script_url"
         chmod +x "$script_name"
     fi
 
-    # [状态] 保持原样，直接运行，不屏蔽输出
-    ./"$script_name"
+    echo ">>> [执行] 正在运行 Argosbx (模式: rep)..."
+    
+    # [关键修复]
+    # 添加 'rep' 参数。
+    # 作用：强制脚本进入 "Repair/Reset" 模式。
+    # 效果：即使本地已安装，也会重新生成/输出详细的节点信息（UUID、链接等）。
+    # 如果不加 'rep'，已安装的脚本只会显示简单的 "运行中" 状态。
+    bash "$script_name" rep
 }
 
 # ==========================================
