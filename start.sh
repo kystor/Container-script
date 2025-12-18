@@ -248,7 +248,7 @@ echo "===================================================="
 
 setup_persistence
 
-TIMEOUT=10
+TIMEOUT=20
 CONFIG_FILE="nezha.yml"
 NEZHA_CMD_SOURCE="" 
 
