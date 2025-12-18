@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # ==========================================
-# 🟢 模块 0：环境自检 (保持你的精简版配置)
+# 🟢 模块 0：环境自检
 # ==========================================
 check_dependencies() {
-    # [优化] 这里的输出符合你的要求，保持简洁，不输出繁杂的系统检查日志
+    # [保持] 仅输出简洁的提示，不输出繁琐的 apk/apt 安装日志
     echo ">>> [系统] 正在检查环境依赖..."
 
     export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-    # 检测 unzip
+    # 检测 unzip (逻辑检查，保持静默)
     if ! command -v unzip >/dev/null 2>&1; then
         echo ">>> [依赖] 系统未安装 unzip。"
         
@@ -17,7 +17,7 @@ check_dependencies() {
         if command -v jar >/dev/null 2>&1; then
             echo ">>> [依赖] ✅ 检测到 Java，将使用 jar 命令代替 unzip。"
             
-            # [注解] 定义函数拦截 unzip 命令，利用 jar 解压
+            # [注解] 定义函数拦截 unzip 命令
             function unzip() {
                 local zip_file=""
                 for arg in "$@"; do
@@ -26,6 +26,7 @@ check_dependencies() {
                 
                 if [ -n "$zip_file" ]; then
                     echo " -> [Java] 正在使用 jar 解压: $zip_file"
+                    # [修改] 移除 >/dev/null，保留 jar 的输出（如有）
                     jar xf "$zip_file"
                 else
                     echo " -> [错误] Java 模式未找到 zip 文件参数。"
@@ -47,16 +48,12 @@ check_dependencies
 # 🟢 脚本说明与配置区
 # ==========================================
 # [更新记录]
-# 2025-12-18: 支持外部环境变量注入 (a="1" bash ...)，智能跳过等待时间。
+# 2025-12-18: 移除所有子进程输出屏蔽 (> /dev/null)，保留真实日志。
 
-# 🟢 【配置 1】：哪吒指令预设区 (优先级 No.2)
-# 如果外部有传入 NZ_CMD 变量，也可以在这里被识别
+# 🟢 【配置 1】：哪吒指令预设区
 PRESET_NEZHA_COMMAND=""
 
 # 🟢 【配置 2】：自定义环境变量
-# [重要修改] 这里去掉了 'hypt=""' 的硬编码。
-# 原因：如果你在命令行用了 hypt="123" bash ...，这里的 hypt="" 会把你的输入覆盖为空。
-# 改为保留为空，或者只定义非冲突的变量。
 CUSTOM_VARIABLES='' 
 
 # 🟢 【核心】：脚本自身的远程下载地址
@@ -70,7 +67,7 @@ LOCAL_SCRIPT="$HOME/start.sh"
 cd "$HOME" || exit
 echo ">>> [初始化] 工作目录已锁定至: $HOME"
 
-# [逻辑优化] 优先加载外部传入的环境变量，然后再尝试加载脚本内部预设
+# 加载外部或内部变量
 if [ -n "$CUSTOM_VARIABLES" ]; then
     echo ">>> [环境] 正在加载脚本内部预设变量..."
     eval "export $CUSTOM_VARIABLES"
@@ -83,16 +80,13 @@ setup_persistence() {
     echo ""
     echo ">>> [系统] 正在检查脚本完整性与开机自启..."
 
+    # [修改] curl 去掉 -s (silent) 可能会太吵，这里保留 -s 但去掉 >/dev/null 如果你想看错误
+    # 这里保持 -s (静默下载) 以免进度条刷屏，但如果有错误会显示
     curl -L -s -o "$LOCAL_SCRIPT" "$SELF_URL"
     chmod +x "$LOCAL_SCRIPT"
 
-    # [逻辑优化] 在 Crontab 命令中，我们需要保留当前的环境变量
-    # 如果你在外部传入了 hypt="123"，我们需要想办法把它也写入 crontab，否则重启后变量会丢失。
-    # 这里做一个简单的变量捕获：将当前的 hypt 写入 crontab (如果存在)
-    
     CRON_VAR_STRING=""
     if [ -n "$hypt" ]; then CRON_VAR_STRING="export hypt=\"$hypt\";"; fi
-    # 如果有其他变量(如 a, b)，可以在这里追加，或者使用更通用的方式
 
     if [ -n "$CUSTOM_VARIABLES" ]; then
         CRON_CMD="@reboot eval \"export $CUSTOM_VARIABLES\"; $CRON_VAR_STRING /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
@@ -100,6 +94,7 @@ setup_persistence() {
         CRON_CMD="@reboot $CRON_VAR_STRING /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
     fi
 
+    # 这里的 >/dev/null 是为了屏蔽 grep 的输出，不是屏蔽子进程，保持原样
     if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "$LOCAL_SCRIPT"; then
         echo ">>> [自启] ✅ 开机自启任务已存在，跳过。"
     else
@@ -124,11 +119,13 @@ start_nezha() {
     local bin_file="nezha-agent"
     local config_file="nezha.yml"
 
-    # [逻辑] 如果指令为空，尝试读取本地配置
+    # 逻辑分支 A：使用本地现有文件
     if [ -z "$cmd_str" ]; then
         if [ -f "$config_file" ]; then
             echo ">>> [探针] ✅ 检测到现有的配置文件，直接启动..."
-            ./"$bin_file" -c "$config_file" >/dev/null 2>&1 &  
+            # [修改] 移除 >/dev/null 2>&1，保留 & (后台运行)
+            # 这样你可以看到 Agent 的连接日志
+            ./"$bin_file" -c "$config_file" &  
             return
         else
             echo ">>> [探针] ⚠️ 未提供配置且无本地配置文件，跳过启动。"
@@ -139,7 +136,6 @@ start_nezha() {
     echo ""
     echo ">>> [探针] 正在解析指令并更新配置..."
 
-    # 解析参数
     local server=$(echo "$cmd_str" | grep -o 'NZ_SERVER=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
     local secret=$(echo "$cmd_str" | grep -o 'NZ_CLIENT_SECRET=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
     local tls=$(echo "$cmd_str" | grep -o 'NZ_TLS=[^ ]*' | cut -d= -f2 | sed 's/["'\'']//g')
@@ -151,7 +147,6 @@ start_nezha() {
         return
     fi
 
-    # 架构判断与下载
     local arch=$(uname -m)
     local arch_code="amd64"
     if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then arch_code="arm64"; fi
@@ -159,7 +154,10 @@ start_nezha() {
     if [ ! -f "$bin_file" ]; then
         echo ">>> [下载] 正在下载哪吒探针 (${arch_code})..."
         curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${arch_code}.zip"
-        unzip -o nezha.zip > /dev/null
+        
+        # [修改] 移除 >/dev/null，显示解压信息
+        unzip -o nezha.zip
+        
         chmod +x "$bin_file"
         rm -f nezha.zip
     fi
@@ -172,7 +170,8 @@ EOF
     echo ">>> [配置] 配置文件 nezha.yml 已重新生成。"
 
     echo ">>> [启动] 拉起 Nezha Agent..."
-    ./"$bin_file" -c "$config_file" >/dev/null 2>&1 &  
+    # [修改] 关键修改：移除输出屏蔽，保留 & 后台运行
+    ./"$bin_file" -c "$config_file" &  
 }
 
 # ==========================================
@@ -184,19 +183,14 @@ start_argosbx() {
     echo ">>> [主程序] 准备启动 Argosbx 业务"
     echo "===================================================="
     
-    # [新功能] 智能环境变量检测
-    # 逻辑：如果检测到 hypt 变量已经存在（通过 a="1" 这种方式传入），则跳过输入。
-    # 或者，如果用户设置了 AUTO_RUN=true，也跳过输入。
-    
     local skip_input=false
 
-    # 检测 hypt 是否有值
+    # 智能跳过逻辑
     if [ -n "$hypt" ]; then
         echo ">>> [环境] ✅ 检测到外部变量 hypt = $hypt"
         skip_input=true
     fi
 
-    # 检测是否有通用的自动运行标记
     if [ "$AUTO_RUN" == "true" ]; then
         echo ">>> [环境] ✅ 检测到 AUTO_RUN 标记，跳过手动输入。"
         skip_input=true
@@ -204,9 +198,7 @@ start_argosbx() {
 
     if [ "$skip_input" = true ]; then
         echo ">>> [提示] 使用现有环境变量，直接启动业务脚本..."
-        # 这里不需要 eval，因为环境变量已经存在于当前 shell 中
     else
-        # 只有在没有外部变量时，才要求用户手动输入
         echo "请输入 Argosbx 需要的环境变量 (例如: hypt=\"1234\")"
         echo "提示：如果有多个变量，请用空格隔开；直接回车则跳过。"
         read -t 20 -p "请输入变量 > " USER_ENV_INPUT
@@ -225,11 +217,12 @@ start_argosbx() {
     local script_url="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
 
     if [ ! -f "$script_name" ]; then
+        # [修改] 移除 curl 的静默模式 (可选)，这里保持基本下载显示
         curl -L -o "$script_name" "$script_url"
         chmod +x "$script_name"
     fi
 
-    # 直接运行，子脚本会自动继承当前 shell 的所有环境变量 (包括 hypt, a, b 等)
+    # [状态] 保持原样，直接运行，不屏蔽输出
     ./"$script_name"
 }
 
@@ -243,12 +236,10 @@ echo "===================================================="
 
 setup_persistence
 
-# [新功能] 哪吒指令的外部注入支持
-# 允许使用 NZ_CMD="xxx" bash start.sh 这种方式传入哪吒指令
+# 外部哪吒指令支持
 if [ -n "$NZ_CMD" ]; then
     echo ">>> [配置] 检测到外部传入的哪吒指令 (NZ_CMD)，将优先使用。"
     NEZHA_CMD_SOURCE="$NZ_CMD"
-    # 如果外部传了指令，我们将超时时间设得非常短，实现近乎无感启动
     TIMEOUT=1
 else
     TIMEOUT=20
@@ -263,7 +254,6 @@ else
     FILE_EXISTS=false
 fi
 
-# 只有在没有外部注入指令时，才显示冗长的菜单
 if [ -z "$NZ_CMD" ]; then
     echo "----------------------------------------------------"
     echo "请配置【哪吒探针】($TIMEOUT 秒倒计时):"
@@ -272,22 +262,14 @@ if [ -z "$NZ_CMD" ]; then
     echo "----------------------------------------------------"
 fi
 
-# 读取输入 (如果 TIMEOUT 是 1，这里几乎会瞬间跳过)
 read -t $TIMEOUT -p "请输入哪吒指令 > " USER_INPUT
 echo ""
-
-# 优先级逻辑：
-# 1. 用户当前手动输入 (USER_INPUT)
-# 2. 外部环境变量注入 (NZ_CMD -> 也就是上面的 NEZHA_CMD_SOURCE)
-# 3. 脚本内部预设 (PRESET_NEZHA_COMMAND)
-# 4. 本地文件
 
 if [ -n "$USER_INPUT" ]; then
     NEZHA_CMD_SOURCE="$USER_INPUT"
     echo ">>> [配置] 使用手动输入更新配置。"
 
 elif [ -n "$NEZHA_CMD_SOURCE" ]; then
-    # 这里对应外部注入的情况 (NZ_CMD)
     echo ">>> [配置] 使用外部注入指令更新配置。"
 
 elif [ -n "$PRESET_NEZHA_COMMAND" ]; then
@@ -309,6 +291,7 @@ start_argosbx
 # 5. 保活逻辑
 echo ""
 echo ">>> [保活] 正在启动后台保活进程 (Keep-Alive)..."
+# 注意：这里的 /dev/null 是为了屏蔽 sleep 命令的输出，它本身没有输出，所以没关系
 nohup sh -c 'while true; do sleep 3600; done' >/dev/null 2>&1 &
 
 echo ">>> [完成] 所有任务已触发，脚本执行完毕。"
