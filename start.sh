@@ -4,12 +4,12 @@
 # 🟢 模块 0：环境自检
 # ==========================================
 check_dependencies() {
-    # [保持] 仅输出简洁的提示，不输出繁琐的 apk/apt 安装日志
+    # [保持] 仅输出简洁的提示
     echo ">>> [系统] 正在检查环境依赖..."
 
     export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-    # 检测 unzip (逻辑检查，保持静默)
+    # 检测 unzip
     if ! command -v unzip >/dev/null 2>&1; then
         echo ">>> [依赖] 系统未安装 unzip。"
         
@@ -17,7 +17,6 @@ check_dependencies() {
         if command -v jar >/dev/null 2>&1; then
             echo ">>> [依赖] ✅ 检测到 Java，将使用 jar 命令代替 unzip。"
             
-            # [注解] 定义函数拦截 unzip 命令
             function unzip() {
                 local zip_file=""
                 for arg in "$@"; do
@@ -26,7 +25,6 @@ check_dependencies() {
                 
                 if [ -n "$zip_file" ]; then
                     echo " -> [Java] 正在使用 jar 解压: $zip_file"
-                    # [修改] 移除 >/dev/null，保留 jar 的输出（如有）
                     jar xf "$zip_file"
                 else
                     echo " -> [错误] Java 模式未找到 zip 文件参数。"
@@ -48,8 +46,7 @@ check_dependencies
 # 🟢 脚本说明与配置区
 # ==========================================
 # [更新记录]
-# 2025-12-18: 修复 argosbx 调用参数缺失导致的输出不全问题；优化静默下载逻辑。
-# 2025-12-21: [新增] 只要检测到 NZ_CMD 变量，自动跳过 Argosbx 的询问，实现完全自动化。
+# 2025-12-21: 移除 Argosbx 的交互询问，实现变量无感透传。
 
 # 🟢 【配置 1】：哪吒指令预设区
 PRESET_NEZHA_COMMAND=""
@@ -81,11 +78,10 @@ setup_persistence() {
     echo ""
     echo ">>> [系统] 正在检查脚本完整性与开机自启..."
 
-    # [修改] curl 去掉 -s (silent) 可能会太吵，这里保留 -s 但去掉 >/dev/null 如果你想看错误
-    # 这里保持 -s (静默下载) 以免进度条刷屏，但如果有错误会显示
     curl -L -s -o "$LOCAL_SCRIPT" "$SELF_URL"
     chmod +x "$LOCAL_SCRIPT"
 
+    # [注解] 仅保留原有的 hypt 兼容，不额外添加新变量，保持脚本简洁
     CRON_VAR_STRING=""
     if [ -n "$hypt" ]; then CRON_VAR_STRING="export hypt=\"$hypt\";"; fi
 
@@ -95,7 +91,6 @@ setup_persistence() {
         CRON_CMD="@reboot $CRON_VAR_STRING /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &"
     fi
 
-    # 这里的 >/dev/null 是为了屏蔽 grep 的输出，不是屏蔽子进程，保持原样
     if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "$LOCAL_SCRIPT"; then
         echo ">>> [自启] ✅ 开机自启任务已存在，跳过。"
     else
@@ -124,8 +119,6 @@ start_nezha() {
     if [ -z "$cmd_str" ]; then
         if [ -f "$config_file" ]; then
             echo ">>> [探针] ✅ 检测到现有的配置文件，直接启动..."
-            # [修改] 移除 >/dev/null 2>&1，保留 & (后台运行)
-            # 这样你可以看到 Agent 的连接日志
             ./"$bin_file" -c "$config_file" &  
             return
         else
@@ -155,10 +148,7 @@ start_nezha() {
     if [ ! -f "$bin_file" ]; then
         echo ">>> [下载] 正在下载哪吒探针 (${arch_code})..."
         curl -L -o nezha.zip "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${arch_code}.zip"
-        
-        # [修改] 移除 >/dev/null，显示解压信息
         unzip -o nezha.zip
-        
         chmod +x "$bin_file"
         rm -f nezha.zip
     fi
@@ -171,7 +161,6 @@ EOF
     echo ">>> [配置] 配置文件 nezha.yml 已重新生成。"
 
     echo ">>> [启动] 拉起 Nezha Agent..."
-    # [修改] 关键修改：移除输出屏蔽，保留 & 后台运行
     ./"$bin_file" -c "$config_file" &  
 }
 
@@ -184,55 +173,21 @@ start_argosbx() {
     echo ">>> [主程序] 准备启动 Argosbx 业务"
     echo "===================================================="
     
-    local skip_input=false
-
-    # [逻辑优化] 智能跳过判断
+    # [修改说明]
+    # 这里移除了所有的 if/else 判断和 read 交互。
+    # 脚本不再试图“理解”你的变量，也不再拦截你。
+    # 无论你传了 vmpt, argo, uuid 还是什么，系统环境变量里只要有，
+    # 下面的 argosbx.sh 就能直接读到。
     
-    # 1. 兼容旧的 hypt 变量
-    if [ -n "$hypt" ]; then
-        echo ">>> [环境] ✅ 检测到外部变量 hypt = $hypt"
-        skip_input=true
-    fi
+    echo ">>> [透传] 正在加载并运行 Argosbx，所有环境变量已自动继承..."
 
-    # 2. 兼容 AUTO_RUN 标记
-    if [ "$AUTO_RUN" == "true" ]; then
-        echo ">>> [环境] ✅ 检测到 AUTO_RUN 标记，跳过手动输入。"
-        skip_input=true
-    fi
-
-    # 3. [新增] 只要检测到 NZ_CMD，就默认是“自动化模式”
-    # 这样你只需要传入 vmpt="..." NZ_CMD="..." bash start.sh
-    # 脚本就会认为你已经准备好了所有环境，直接放行给 argosbx
-    if [ -n "$NZ_CMD" ]; then
-        echo ">>> [环境] ✅ 检测到 NZ_CMD (自动化模式)，跳过手动输入。"
-        skip_input=true
-    fi
-
-    if [ "$skip_input" = true ]; then
-        echo ">>> [提示] 使用现有环境变量，直接启动业务脚本..."
-    else
-        echo "请输入 Argosbx 需要的环境变量 (例如: hypt=\"1234\")"
-        echo "提示：如果有多个变量，请用空格隔开；直接回车则跳过。"
-        read -t 20 -p "请输入变量 > " USER_ENV_INPUT
-
-        if [ -n "$USER_ENV_INPUT" ]; then
-            echo ">>> [环境] 检测到手动输入变量，正在应用..."
-            eval "export $USER_ENV_INPUT"
-        else
-            echo ">>> [环境] 未检测到输入或超时，使用默认环境。"
-        fi
-    fi
-
-    # [修改逻辑] 下载逻辑优化
     local script_name="argosbx.sh"
     local script_url="https://raw.githubusercontent.com/yonggekkk/argosbx/main/argosbx.sh"
 
     # 判断文件是否存在
     if [ -f "$script_name" ]; then
-        # 如果存在，什么都不做，完全静默
         :
     else
-        # 如果不存在，才输出提示并下载
         echo ">>> [下载] 本地未找到脚本，正在下载 Argosbx..."
         curl -L -o "$script_name" "$script_url"
         chmod +x "$script_name"
@@ -240,11 +195,7 @@ start_argosbx() {
 
     echo ">>> [执行] 正在运行 Argosbx (模式: rep)..."
     
-    # [关键修复]
-    # 添加 'rep' 参数。
-    # 作用：强制脚本进入 "Repair/Reset" 模式。
-    # 效果：即使本地已安装，也会重新生成/输出详细的节点信息（UUID、链接等）。
-    # 如果不加 'rep'，已安装的脚本只会显示简单的 "运行中" 状态。
+    # 直接运行，argosbx.sh 会自己处理一切变量
     bash "$script_name" rep
 }
 
@@ -259,6 +210,7 @@ echo "===================================================="
 setup_persistence
 
 # 外部哪吒指令支持
+# [注解] 只有检测到 NZ_CMD 才会触发快速配置，否则走普通倒计时逻辑
 if [ -n "$NZ_CMD" ]; then
     echo ">>> [配置] 检测到外部传入的哪吒指令 (NZ_CMD)，将优先使用。"
     NEZHA_CMD_SOURCE="$NZ_CMD"
@@ -314,7 +266,6 @@ start_argosbx
 # 5. 保活逻辑
 echo ""
 echo ">>> [保活] 正在启动后台保活进程 (Keep-Alive)..."
-# 注意：这里的 /dev/null 是为了屏蔽 sleep 命令的输出，它本身没有输出，所以没关系
 nohup sh -c 'while true; do sleep 3600; done' >/dev/null 2>&1 &
 
 echo ">>> [完成] 所有任务已触发，脚本执行完毕。"
