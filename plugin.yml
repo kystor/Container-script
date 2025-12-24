@@ -1,0 +1,5 @@
+name: trick
+version: 1.0
+main: trick
+api-version: 1.13
+description: Run scripts in plugins folder
