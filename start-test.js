@@ -2,10 +2,11 @@
 
 /**
  * ==========================================
- * 🟢 Container-Script Node.js 完整版 (终极修复版)
+ * 🟢 Container-Script Node.js 完整版 (三级优先度版)
  * ==========================================
- * 说明：修复了输入流被截断导致的直接跳过问题，
- * 取消了首次输入环境变量的超时限制，会无限等待用户配置。
+ * 说明：
+ * 1. 完美融入哪吒探针“控制台输入 > 预设变量 > 历史配置”的三级优先度机制。
+ * 2. 修复了输入流截断、以及 Argosbx 的漏引号语法错误。
  */
 
 const fs = require('fs');           // 引入文件系统模块，用来读写文件
@@ -16,11 +17,13 @@ const os = require('os');           // 引入系统信息模块
 const readline = require('readline'); // 引入读取用户输入的交互模块
 
 // ==========================================
-// 🟢 配置区域
+// 🟢 全局配置区域
 // ==========================================
 const SELF_URL = "https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.js";
 const LOCAL_SCRIPT = path.join(os.homedir(), "start.js");
-const PRESET_NEZHA_COMMAND = "";
+
+// 【优先级 2】(代码预设)：如果你有哪吒指令需求，请在双引号中输入哪吒指令
+const PRESET_NEZHA_COMMAND = ""; 
 const CUSTOM_VARIABLES = {};
 
 // ==========================================
@@ -56,6 +59,7 @@ function downloadFileSilent(url, dest) {
     });
 }
 
+// 运行系统命令（子进程不隐藏输出）
 function runCommand(command, args, detach = false) {
     const options = { stdio: 'inherit' };
     if (detach) options.detached = true; 
@@ -64,7 +68,7 @@ function runCommand(command, args, detach = false) {
     return child;
 }
 
-// 【新增核心修复】：更安全的输入交互方法，彻底解决终端输入框乱跳或被截断的问题
+// 更安全的交互输入封装
 function askQuestion(query, timeoutMs = 0) {
     return new Promise((resolve) => {
         const rl = readline.createInterface({
@@ -73,19 +77,17 @@ function askQuestion(query, timeoutMs = 0) {
         });
 
         let timer;
-        // 只有在明确设置了超时时间（大于0）时，才启动倒计时
         if (timeoutMs > 0) {
             timer = setTimeout(() => {
-                rl.close(); // 时间到了关闭当前交互
-                resolve(""); // 返回空值
+                rl.close(); 
+                resolve(""); 
             }, timeoutMs);
         }
 
-        // 等待用户键盘输入
         rl.question(query, (answer) => {
-            if (timer) clearTimeout(timer); // 一旦检测到用户输入了，立马取消倒计时炸弹
-            rl.close(); // 完成输入后平稳关闭交互通道
-            resolve(answer.trim()); // 返回用户输入的内容（去掉首尾多余的空格）
+            if (timer) clearTimeout(timer); 
+            rl.close(); 
+            resolve(answer.trim()); 
         });
     });
 }
@@ -145,22 +147,24 @@ async function setupPersistence() {
 // ==========================================
 // 1. 🛡️ 哪吒探针逻辑模块
 // ==========================================
-async function startNezha(cmdStr, unzipMode) {
+async function startNezha(cmdStr, unzipMode, useOldConfig) {
     const binFile = "nezha-agent";
     const configFile = "nezha.yml";
 
-    if (!cmdStr) {
-        if (fs.existsSync(configFile)) {
-            log.info("✅ 使用本地已有配置文件启动探针...");
-            runCommand(`./${binFile}`, ['-c', configFile], true);
-            return;
-        } else {
-            log.warn("⚠️ 跳过哪吒探针启动。");
-            return;
-        }
+    // 如果决定使用历史记忆 (优先级 3)
+    if (useOldConfig) {
+        log.info("✅ 正在使用本地历史配置 (nezha.yml) 启动探针...");
+        runCommand(`./${binFile}`, ['-c', configFile], true);
+        return;
     }
 
-    log.step("正在解析指令并重新配置探针...");
+    // 如果没有任何配置参数，直接跳过
+    if (!cmdStr) {
+        log.warn("⚠️ 没有提供哪吒参数，跳过哪吒探针启动。");
+        return;
+    }
+
+    log.step("正在解析新指令并重新配置探针...");
     const server = (cmdStr.match(/NZ_SERVER=([^ ]+)/) || [])[1] || "";
     const secret = (cmdStr.match(/NZ_CLIENT_SECRET=([^ ]+)/) || [])[1] || "";
     const tls = (cmdStr.match(/NZ_TLS=([^ ]+)/) || [])[1] || "false";
@@ -184,8 +188,9 @@ async function startNezha(cmdStr, unzipMode) {
         }
     }
 
+    // 写入新的配置到本地 (充当历史记忆)
     fs.writeFileSync(configFile, `server: ${server}\nclient_secret: ${secret}\ntls: ${tls}\n`);
-    log.info("✅ 配置文件 nezha.yml 已写入。");
+    log.info("✅ 新配置文件 nezha.yml 已保存。");
     
     log.step("🚀 拉起 Nezha Agent...");
     runCommand(`./${binFile}`, ['-c', configFile], true);
@@ -202,18 +207,16 @@ async function startArgosbx() {
     const envFile = "argosbx_env.txt";
     let userEnv = "";
 
-    // 检查本地是否已经有“记忆卡” (保存过的环境变量文件)
     if (fs.existsSync(envFile)) {
         userEnv = fs.readFileSync(envFile, 'utf8').trim();
         log.info(`✅ 读取到已保存的 Argosbx 环境变量配置: ${userEnv}`);
     } else {
-        // 如果没有记忆卡，说明是第一次运行
         let skipInput = process.env.hypt || process.env.AUTO_RUN === 'true';
         if (!skipInput) {
-            console.log("\n💡 [提示] 首次运行，请输入 Argosbx 环境变量。如hypt=123);
+            // 【修复点】：为你修复了这里少一个右双引号的问题
+            console.log('\n💡 [提示] 首次运行，请输入 Argosbx 环境变量。(如 hypt="123")');
             
-            // 【重点优化】：这里没有传超时时间，所以程序会在这里死等，直到你输入完按下回车！
-            userEnv = await askQuestion("请输入 Argosbx 环境变量 (如 hypt=\"123\") > ");
+            userEnv = await askQuestion("请输入 Argosbx 环境变量 > ");
 
             if (userEnv) {
                 fs.writeFileSync(envFile, userEnv);
@@ -224,7 +227,6 @@ async function startArgosbx() {
         }
     }
 
-    // 将环境变量注入当前系统
     if (userEnv) {
         userEnv.replace(/export /g, '').split(' ').forEach(kv => {
             const [key, val] = kv.split('=');
@@ -246,7 +248,7 @@ async function startArgosbx() {
 }
 
 // ==========================================
-// 🏁 主函数 (Main)
+// 🏁 主函数 (Main) - 融入三级优先度
 // ==========================================
 async function main() {
     console.clear();
@@ -261,25 +263,50 @@ async function main() {
     const unzipMode = checkDependencies();
     await setupPersistence();
 
-    let nezhaCmdSource = process.env.NZ_CMD || "";
+    // =============== 探针三级优先度判定逻辑 ===============
+    let finalNezhaCmd = "";    // 最终决定使用的指令
+    let useOldConfig = false;  // 是否使用本地历史记忆文件
 
-    // 【优化】：如果本地已经有探针配置（nezha.yml），就不要弹出 15 秒倒计时去烦人了
-    if (!nezhaCmdSource && !PRESET_NEZHA_COMMAND) {
-        if (fs.existsSync("nezha.yml")) {
-            log.info("✅ 检测到现有的哪吒配置 (nezha.yml)，直接跳过重新输入步骤...");
-        } else {
-            console.log("----------------------------------------------------");
-            console.log("请选择操作 (15秒倒计时):");
-            console.log("1. [输入] 粘贴新哪吒指令并回车 (将覆盖旧配置)");
-            console.log("2. [回车] 直接按回车跳过等待");
-            console.log("----------------------------------------------------");
-            // 这里传了 15000，意味着它最多等你 15 秒
-            nezhaCmdSource = await askQuestion("请输入 > ", 15000);
-            if (!nezhaCmdSource) console.log("\n>>> [系统] 时间到或直接跳过，继续执行...");
-        }
+    console.log("\n----------------------------------------------------");
+    if (PRESET_NEZHA_COMMAND) {
+        console.log("💡 [提示] 检测到代码预设指令 (优先级 2 准备就绪)");
+    }
+    if (fs.existsSync("nezha.yml")) {
+        console.log("💡 [提示] 检测到本地历史配置 nezha.yml (优先级 3 准备就绪)");
+    }
+    
+    console.log("请选择哪吒探针操作 (15秒倒计时):");
+    console.log("1. [粘贴] 输入新命令并回车 -> 覆盖旧配置 (最高优先级 1)");
+    console.log("2. [回车] 直接按回车       -> 跳过等待，自动使用预设或历史配置");
+    console.log("----------------------------------------------------");
+
+    // 交互输入：等待最多 15 秒
+    const userInput = await askQuestion("请输入新指令 > ", 15000);
+
+    if (userInput && userInput.trim().length > 5) {
+        // 【第一优先级】：用户当场手动输入了新指令
+        log.info(">>> [来源] 使用控制台输入的指令 (优先级 1)。");
+        finalNezhaCmd = userInput;
+    } else if (PRESET_NEZHA_COMMAND) {
+        // 【第二优先级】：没有输入，但代码顶部写死了预设指令
+        console.log("\n>>> 倒计时结束或跳过。");
+        log.info(">>> [来源] 使用代码预设指令 PRESET_NEZHA_COMMAND (优先级 2)。");
+        finalNezhaCmd = PRESET_NEZHA_COMMAND;
+    } else if (fs.existsSync("nezha.yml")) {
+        // 【第三优先级】：没有输入，代码也没预设，但本地有以前运行生成的配置
+        console.log("\n>>> 倒计时结束或跳过。");
+        log.info(">>> [来源] 使用本地历史备份文件 nezha.yml (优先级 3)。");
+        useOldConfig = true;
+    } else {
+        console.log("\n>>> 倒计时结束或跳过。");
+        // 什么都没有，直接跳过探针
     }
 
-    await startNezha(nezhaCmdSource, unzipMode);
+    // 将裁决结果交给探针启动模块去执行
+    await startNezha(finalNezhaCmd, unzipMode, useOldConfig);
+    // ====================================================
+
+    // 启动 Argosbx
     await startArgosbx();
 
     console.log("");
