@@ -2,16 +2,18 @@
 
 /**
  * ==========================================
- * 🟢 Container-Script Node.js 完整版 (完美交互版)
+ * 🟢 Container-Script Node.js 完整版 (终极修复版)
  * ==========================================
+ * 说明：修复了输入流被截断导致的直接跳过问题，
+ * 取消了首次输入环境变量的超时限制，会无限等待用户配置。
  */
 
-const fs = require('fs');           
-const path = require('path');       
-const { execSync, spawn } = require('child_process'); 
-const https = require('https');     
-const os = require('os');           
-const readline = require('readline'); 
+const fs = require('fs');           // 引入文件系统模块，用来读写文件
+const path = require('path');       // 引入路径处理模块
+const { execSync, spawn } = require('child_process'); // 引入执行外部系统命令的模块
+const https = require('https');     // 引入网络请求模块，用来下载文件
+const os = require('os');           // 引入系统信息模块
+const readline = require('readline'); // 引入读取用户输入的交互模块
 
 // ==========================================
 // 🟢 配置区域
@@ -55,11 +57,37 @@ function downloadFileSilent(url, dest) {
 }
 
 function runCommand(command, args, detach = false) {
-    const options = { stdio: 'inherit', shell: true };
+    const options = { stdio: 'inherit' };
     if (detach) options.detached = true; 
     const child = spawn(command, args, options);
     if (detach) child.unref(); 
     return child;
+}
+
+// 【新增核心修复】：更安全的输入交互方法，彻底解决终端输入框乱跳或被截断的问题
+function askQuestion(query, timeoutMs = 0) {
+    return new Promise((resolve) => {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        let timer;
+        // 只有在明确设置了超时时间（大于0）时，才启动倒计时
+        if (timeoutMs > 0) {
+            timer = setTimeout(() => {
+                rl.close(); // 时间到了关闭当前交互
+                resolve(""); // 返回空值
+            }, timeoutMs);
+        }
+
+        // 等待用户键盘输入
+        rl.question(query, (answer) => {
+            if (timer) clearTimeout(timer); // 一旦检测到用户输入了，立马取消倒计时炸弹
+            rl.close(); // 完成输入后平稳关闭交互通道
+            resolve(answer.trim()); // 返回用户输入的内容（去掉首尾多余的空格）
+        });
+    });
 }
 
 // ==========================================
@@ -121,7 +149,6 @@ async function startNezha(cmdStr, unzipMode) {
     const binFile = "nezha-agent";
     const configFile = "nezha.yml";
 
-    // 【修改点】：如果用户没输入新指令，但有旧配置，使用旧配置启动
     if (!cmdStr) {
         if (fs.existsSync(configFile)) {
             log.info("✅ 使用本地已有配置文件启动探针...");
@@ -172,23 +199,37 @@ async function startArgosbx() {
     log.step("准备启动 Argosbx 业务");
     console.log("====================================================");
 
-    let skipInput = process.env.hypt || process.env.AUTO_RUN === 'true';
+    const envFile = "argosbx_env.txt";
+    let userEnv = "";
 
-    if (!skipInput) {
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const userEnv = await new Promise((resolve) => {
-            const timer = setTimeout(() => { log.info("超时，使用默认环境。"); rl.close(); resolve(""); }, 15000); 
-            rl.question("请输入 Argosbx 环境变量 (如 hypt=\"123\") > ", (answer) => {
-                clearTimeout(timer); rl.close(); resolve(answer);
-            });
-        });
+    // 检查本地是否已经有“记忆卡” (保存过的环境变量文件)
+    if (fs.existsSync(envFile)) {
+        userEnv = fs.readFileSync(envFile, 'utf8').trim();
+        log.info(`✅ 读取到已保存的 Argosbx 环境变量配置: ${userEnv}`);
+    } else {
+        // 如果没有记忆卡，说明是第一次运行
+        let skipInput = process.env.hypt || process.env.AUTO_RUN === 'true';
+        if (!skipInput) {
+            console.log("\n💡 [提示] 首次运行，请输入 Argosbx 环境变量。如hypt=123);
+            
+            // 【重点优化】：这里没有传超时时间，所以程序会在这里死等，直到你输入完按下回车！
+            userEnv = await askQuestion("请输入 Argosbx 环境变量 (如 hypt=\"123\") > ");
 
-        if (userEnv) {
-            userEnv.replace(/export /g, '').split(' ').forEach(kv => {
-                const [key, val] = kv.split('=');
-                if (key && val) process.env[key] = val.replace(/["']/g, ''); 
-            });
+            if (userEnv) {
+                fs.writeFileSync(envFile, userEnv);
+                log.info("✅ 环境变量已永久保存到本地，下次开机将自动读取，无需重复输入！");
+            } else {
+                log.warn("⚠️ 警告：你没有输入任何变量！直接按了回车。脚本稍后可能会报错💣。");
+            }
         }
+    }
+
+    // 将环境变量注入当前系统
+    if (userEnv) {
+        userEnv.replace(/export /g, '').split(' ').forEach(kv => {
+            const [key, val] = kv.split('=');
+            if (key && val) process.env[key] = val.replace(/["']/g, ''); 
+        });
     }
 
     const scriptName = "argosbx.sh";
@@ -220,33 +261,22 @@ async function main() {
     const unzipMode = checkDependencies();
     await setupPersistence();
 
-    // 【核心交互修改】：始终显示菜单，除非环境变量中强行指定了
     let nezhaCmdSource = process.env.NZ_CMD || "";
 
+    // 【优化】：如果本地已经有探针配置（nezha.yml），就不要弹出 15 秒倒计时去烦人了
     if (!nezhaCmdSource && !PRESET_NEZHA_COMMAND) {
-        console.log("----------------------------------------------------");
         if (fs.existsSync("nezha.yml")) {
-            console.log("💡 [提示] 本地已存在哪吒配置备份 (nezha.yml)");
+            log.info("✅ 检测到现有的哪吒配置 (nezha.yml)，直接跳过重新输入步骤...");
+        } else {
+            console.log("----------------------------------------------------");
+            console.log("请选择操作 (15秒倒计时):");
+            console.log("1. [输入] 粘贴新哪吒指令并回车 (将覆盖旧配置)");
+            console.log("2. [回车] 直接按回车跳过等待");
+            console.log("----------------------------------------------------");
+            // 这里传了 15000，意味着它最多等你 15 秒
+            nezhaCmdSource = await askQuestion("请输入 > ", 15000);
+            if (!nezhaCmdSource) console.log("\n>>> [系统] 时间到或直接跳过，继续执行...");
         }
-        console.log("请选择操作 (15秒倒计时):");
-        console.log("1. [输入] 粘贴新哪吒指令并回车 (将覆盖旧配置)");
-        console.log("2. [回车] 直接按回车跳过等待 (自动使用已有配置)");
-        console.log("----------------------------------------------------");
-
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        nezhaCmdSource = await new Promise((resolve) => {
-            const timer = setTimeout(() => {
-                rl.close();
-                console.log("\n>>> 倒计时结束，自动继续...");
-                resolve("");
-            }, 15000);
-
-            rl.question("请输入 > ", (ans) => {
-                clearTimeout(timer);
-                rl.close();
-                resolve(ans);
-            });
-        });
     }
 
     await startNezha(nezhaCmdSource, unzipMode);
