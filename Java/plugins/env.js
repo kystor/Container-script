@@ -1,0 +1,6 @@
+NEZHA_COMMAND = ""
+vmpt = ""
+argo = ""
+agn = ""
+agk = ""
+hypt = ""
