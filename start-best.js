@@ -1,17 +1,7 @@
 #!/usr/bin/env node
-
-/**
- * ==========================================
- * 🟢 Container-Script Node.js 完整版 (三级优先度版)
- * ==========================================
- * 说明：
- * 1. 完美融入哪吒探针“控制台输入 > 预设变量 > 历史配置”的三级优先度机制。
- * 2. 修复了输入流截断、以及 Argosbx 的漏引号语法错误。
- */
-
 const fs = require('fs');           // 引入文件系统模块，用来读写文件
 const path = require('path');       // 引入路径处理模块
-const { execSync, spawn } = require('child_process'); // 引入执行外部系统命令的模块
+const { execSync, spawn } = require('child_process'); // 引入执行外部系统命令的模块，用于运行子进程
 const https = require('https');     // 引入网络请求模块，用来下载文件
 const os = require('os');           // 引入系统信息模块
 const readline = require('readline'); // 引入读取用户输入的交互模块
@@ -24,7 +14,10 @@ const LOCAL_SCRIPT = path.join(os.homedir(), "start.js");
 
 // 【优先级 2】(代码预设)：如果你有哪吒指令需求，请在双引号中输入哪吒指令
 const PRESET_NEZHA_COMMAND = ""; 
-const CUSTOM_VARIABLES = {};
+
+// 👇 这里就是为你修改的地方：使用你喜欢的等号格式，将变量写在单引号里的字符串中
+// Node.js 会在主函数中自动把这句话“拆解”并翻译成系统能看懂的环境变量
+const CUSTOM_VARIABLES_STR = 'hypt=""';
 
 // ==========================================
 // 🛠️ 工具函数库
@@ -36,6 +29,7 @@ const log = {
     step: (msg) => console.log(`\x1b[36m>>> [步骤] ${msg}\x1b[0m`), 
 };
 
+// 检查系统内是否存在某个命令
 function commandExists(cmd) {
     try {
         execSync(`command -v ${cmd}`, { stdio: 'ignore' });
@@ -45,10 +39,12 @@ function commandExists(cmd) {
     }
 }
 
+// 静默下载文件函数
 function downloadFileSilent(url, dest) {
     return new Promise((resolve, reject) => {
         const file = fs.createWriteStream(dest);
         https.get(url, (response) => {
+            // 如果遇到网页重定向（比如 302 跳转），自动跟随新链接去下载
             if (response.statusCode === 302 || response.statusCode === 301) {
                 downloadFileSilent(response.headers.location, dest).then(resolve).catch(reject);
                 return;
@@ -59,8 +55,9 @@ function downloadFileSilent(url, dest) {
     });
 }
 
-// 运行系统命令（子进程不隐藏输出）
+// 运行系统命令（保证子进程完全不隐藏输出，继承父进程的控制台输出）
 function runCommand(command, args, detach = false) {
+    // stdio: 'inherit' 代表子进程的输出将直接打印到你的屏幕上，绝不屏蔽
     const options = { stdio: 'inherit' };
     if (detach) options.detached = true; 
     const child = spawn(command, args, options);
@@ -68,7 +65,7 @@ function runCommand(command, args, detach = false) {
     return child;
 }
 
-// 更安全的交互输入封装
+// 更安全的交互输入封装（带倒计时功能）
 function askQuestion(query, timeoutMs = 0) {
     return new Promise((resolve) => {
         const rl = readline.createInterface({
@@ -78,6 +75,7 @@ function askQuestion(query, timeoutMs = 0) {
 
         let timer;
         if (timeoutMs > 0) {
+            // 如果设置了超时时间，时间一到就自动结束等待，返回空内容
             timer = setTimeout(() => {
                 rl.close(); 
                 resolve(""); 
@@ -96,20 +94,20 @@ function askQuestion(query, timeoutMs = 0) {
 // 🟢 模块 0：环境自检 
 // ==========================================
 function checkDependencies() {
-    log.info("正在检查环境依赖...");
+    // 已经清理了冗长的依赖检查打印输出，保持界面整洁
     process.env.PATH = `${process.env.PATH}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
     if (commandExists('unzip')) {
-        log.info("✅ 系统已有 unzip。");
         return 'unzip'; 
     } 
     if (commandExists('jar')) {
-        log.info("✅ 检测到 Java，将使用 jar 代替 unzip。");
         return 'jar';
     }
     return null;
 }
 
+// 解压文件模块
 function unzipFile(zipFile, mode) {
+    // 解压文件时也保持输出可见 (inherit)
     if (mode === 'unzip') execSync(`unzip -o "${zipFile}"`, { stdio: 'inherit' });
     else if (mode === 'jar') execSync(`jar xf "${zipFile}"`, { stdio: 'inherit' });
 }
@@ -121,7 +119,7 @@ async function setupPersistence() {
     log.step("正在检查脚本完整性与开机自启...");
     try {
         await downloadFileSilent(SELF_URL, LOCAL_SCRIPT);
-        fs.chmodSync(LOCAL_SCRIPT, '755'); 
+        fs.chmodSync(LOCAL_SCRIPT, '755'); // 赋予可执行权限
     } catch (e) {}
 
     if (!commandExists('crontab')) {
@@ -174,6 +172,7 @@ async function startNezha(cmdStr, unzipMode, useOldConfig) {
         return;
     }
 
+    // 检测探针主程序是否存在，不存在则下载
     if (!fs.existsSync(binFile)) {
         let archCode = (os.arch() === 'arm64' || os.arch() === 'aarch64') ? "arm64" : "amd64";
         log.info(`>>> [下载] 正在下载适配 ${archCode} 的探针...`);
@@ -188,7 +187,7 @@ async function startNezha(cmdStr, unzipMode, useOldConfig) {
         }
     }
 
-    // 写入新的配置到本地 (充当历史记忆)
+    // 将解析出的配置信息写入到本地文件，留作以后的历史记忆
     fs.writeFileSync(configFile, `server: ${server}\nclient_secret: ${secret}\ntls: ${tls}\n`);
     log.info("✅ 新配置文件 nezha.yml 已保存。");
     
@@ -207,13 +206,13 @@ async function startArgosbx() {
     const envFile = "argosbx_env.txt";
     let userEnv = "";
 
+    // 尝试读取本地保存的环境变量
     if (fs.existsSync(envFile)) {
         userEnv = fs.readFileSync(envFile, 'utf8').trim();
         log.info(`✅ 读取到已保存的 Argosbx 环境变量配置: ${userEnv}`);
     } else {
         let skipInput = process.env.hypt || process.env.AUTO_RUN === 'true';
         if (!skipInput) {
-            // 【修复点】：为你修复了这里少一个右双引号的问题
             console.log('\n💡 [提示] 首次运行，请输入 Argosbx 环境变量。(如 hypt="123")');
             
             userEnv = await askQuestion("请输入 Argosbx 环境变量 > ");
@@ -227,6 +226,7 @@ async function startArgosbx() {
         }
     }
 
+    // 解析变量并应用到当前运行环境中
     if (userEnv) {
         userEnv.replace(/export /g, '').split(' ').forEach(kv => {
             const [key, val] = kv.split('=');
@@ -248,7 +248,7 @@ async function startArgosbx() {
 }
 
 // ==========================================
-// 🏁 主函数 (Main) - 融入三级优先度
+// 🏁 主函数 (Main) - 融入三级优先度与自定义变量解析
 // ==========================================
 async function main() {
     console.clear();
@@ -256,8 +256,17 @@ async function main() {
     console.log("                 Container-Script (Node.js)         ");
     console.log("====================================================");
 
-    for (const [key, value] of Object.entries(CUSTOM_VARIABLES)) {
-        process.env[key] = value; 
+    // 【新增核心功能】：自动解析顶部配置的等号格式字符串
+    if (CUSTOM_VARIABLES_STR) {
+        // 第一步：用空格切开每一个独立的变量
+        CUSTOM_VARIABLES_STR.split(' ').forEach(kv => {
+            // 第二步：用等号将变量名和变量值拆分开
+            const [key, val] = kv.split('=');
+            if (key && val) {
+                // 第三步：将多余的引号清理掉，然后正式装载到系统的环境池中
+                process.env[key] = val.replace(/["']/g, ''); 
+            }
+        });
     }
 
     const unzipMode = checkDependencies();
@@ -266,6 +275,9 @@ async function main() {
     // =============== 探针三级优先度判定逻辑 ===============
     let finalNezhaCmd = "";    // 最终决定使用的指令
     let useOldConfig = false;  // 是否使用本地历史记忆文件
+    
+    // 倒计时设置常量
+    const TIMEOUT_SECONDS = 15; 
 
     console.log("\n----------------------------------------------------");
     if (PRESET_NEZHA_COMMAND) {
@@ -282,8 +294,8 @@ async function main() {
     console.log(`3. [等待] 倒计时结束        -> 自动使用预设或备份`);
     console.log('----------------------------------------------------');
 
-    // 交互输入：等待最多 15 秒
-    const userInput = await askQuestion("请输入新指令 > ", 15000);
+    // 交互输入：等待最多 15 秒（15000 毫秒）
+    const userInput = await askQuestion("请输入新指令 > ", TIMEOUT_SECONDS * 1000);
 
     if (userInput && userInput.trim().length > 5) {
         // 【第一优先级】：用户当场手动输入了新指令
@@ -308,12 +320,14 @@ async function main() {
     await startNezha(finalNezhaCmd, unzipMode, useOldConfig);
     // ====================================================
 
-    // 启动 Argosbx
+    // 启动 Argosbx 业务子进程
     await startArgosbx();
 
     console.log("");
     log.step("正在启动后台保活进程 (Keep-Alive)...");
+    // 保持进程不退出，每 3600 秒（1小时）空跑一次
     setInterval(() => {}, 3600 * 1000); 
 }
 
+// 捕获并打印全局错误，防止程序崩溃时没有任何提示
 main().catch(err => console.error("运行出错:", err));
