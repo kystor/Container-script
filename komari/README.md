@@ -1,4 +1,3 @@
-```md
 # Container-script
 
 容器启动脚本，当前集成了以下能力：
