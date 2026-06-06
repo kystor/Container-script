@@ -1,63 +1,135 @@
 # Container-script
 
-容器启动脚本，内置以下能力：
+å®¹å¨å¯å¨èæ¬ï¼åç½®ä»¥ä¸è½åï¼
 
-- 哪吒探针安装与启动
-- Komari 探针安装与启动
-- Argosbx 主脚本拉起
-- 自动探测容器端口
-- 环境变量透传到 `argosbx.sh`
+- åªåæ¢éå®è£ä¸å¯å¨
+- Komari æ¢éå®è£ä¸å¯å¨
+- Argosbx ä¸»èæ¬æèµ·
+- èªå¨æ¢æµå®¹å¨ç«¯å£
+- ç¯å¢åééä¼ å° `argosbx.sh`
 
-## 远程安装
+## è¿ç¨å®è£
 
-如果服务器有 `curl`，直接执行：
+å¦ææå¡å¨æ `curl`ï¼ç´æ¥æ§è¡ï¼
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
 ```
 
-如果服务器没有 `curl`，可以用：
+å¦ææå¡å¨æ²¡æ `curl`ï¼å¯ä»¥ç¨ï¼
 
 ```bash
 bash <(wget -qO- https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
 ```
 
-## 启动前传参
+## æ«å°¾åæ°éä¼ 
 
-你可以把环境变量直接写在远程命令前面。
+`start.sh` ä¸è¯å« `rep`ã`del`ã`list`ã`res`ã`upx`ã`ups` è¿äºå·ä½å­ç¬¦ä¸²ã
 
-例如：
+å®åªåä¸ä»¶äºï¼
+
+- æä½ åå¨å½ä»¤æ«å°¾çåæ°ï¼åæ ·ä¼ ç» `argosbx.sh`
+
+ä¾å¦ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) ups
+```
+
+åé¨å®éæ§è¡ææå°±æ¯ï¼
+
+```bash
+bash argosbx.sh ups
+```
+
+å¦æä½ è¿æ ·æ§è¡ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) list
+```
+
+åé¨å°±ä¼éä¼ æï¼
+
+```bash
+bash argosbx.sh list
+```
+
+å¦ææ«å°¾æ²¡æåæ°ï¼èæ¬é»è®¤ä½¿ç¨ `rep`ã
+
+ä¹å°±æ¯ä¸é¢ä¸¤ç§åæ³ç­ä»·ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
+```
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) rep
+```
+
+## å¯å¨åä¼ å
+
+ä½ å¯ä»¥æç¯å¢åéç´æ¥åå¨è¿ç¨å½ä»¤åé¢ã
+
+ä¾å¦ï¼
+
+```bash
+hypt="1" tupt="2" bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) rep
+```
+
+è¿äºåéä¼ï¼
+
+- å½åè¿æ¬¡æ§è¡ç«å³çæ
+- ç»§ç»­éä¼ ç»åé¨å¯å¨ç `argosbx.sh`
+- èªå¨ä¿å­å° `$HOME/.container-script.env`
+- å¨éå¯åç±èªå¯ä»»å¡éæ°å è½½
+
+## å¸¸ç¨ç¤ºä¾
+
+è°æ´åéå¹¶æ§è¡é»è®¤ `rep`ï¼
 
 ```bash
 hypt="1" tupt="2" bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
 ```
 
-这些变量会：
-
-- 当前这次执行立即生效
-- 继续透传给内部启动的 `argosbx.sh`
-- 自动保存到 `$HOME/.container-script.env`
-- 在重启后由自启任务重新加载
-
-## Argosbx 透传说明
-
-现在脚本支持你要的这种方式：
+è°æ´åéå¹¶æ¾å¼æ§è¡ `rep`ï¼
 
 ```bash
-hypt="1" tupt="2" bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
+hypt="1" tupt="2" bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) rep
 ```
 
-脚本内部会继续执行：
+æ¥çèç¹ä¿¡æ¯ï¼
 
 ```bash
-bash argosbx.sh rep
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) list
 ```
 
-因为子进程会继承当前环境变量，所以 `hypt`、`tupt` 这类变量会自动传给 `argosbx.sh`。
+å¸è½½ï¼
 
-## 容器端口检测
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) del
+```
 
-脚本会优先从下面这些环境变量里寻找容器端口：
+éå¯ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) res
+```
+
+åçº§ Xray åæ ¸ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) upx
+```
+
+åçº§ Singbox åæ ¸ï¼
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh) ups
+```
+
+## å®¹å¨ç«¯å£æ£æµ
+
+èæ¬ä¼ä¼åä»ä¸é¢è¿äºç¯å¢åééå¯»æ¾å®¹å¨ç«¯å£ï¼
 
 - `SERVER_PORT`
 - `PORT`
@@ -68,7 +140,7 @@ bash argosbx.sh rep
 - `CONTAINER_PORT`
 - `INTERNAL_PORT`
 
-如果检测到有效端口，会自动导出：
+å¦ææ£æµå°ææç«¯å£ï¼ä¼èªå¨å¯¼åºï¼
 
 - `SERVER_PORT`
 - `PORT`
@@ -76,63 +148,43 @@ bash argosbx.sh rep
 - `INTERNAL_PORT`
 - `PANEL_PORT`
 
-如果你没有手动传入 `hypt`，脚本还会把检测到的容器端口默认赋给 `hypt`。
+å¦æä½ æ²¡ææå¨ä¼ å¥ `hypt`ï¼èæ¬è¿ä¼ææ£æµå°çå®¹å¨ç«¯å£é»è®¤èµç» `hypt`ã
 
-## 哪吒用法
+## åªåç¨æ³
 
-支持下面几种方式：
+æ¯æä¸é¢å ç§æ¹å¼ï¼
 
-1. 运行脚本后手动粘贴哪吒官方命令
-2. 通过 `NZ_CMD` 直接传入
-3. 本地已有 `nezha.yml` 时直接复用
+1. è¿è¡èæ¬åæå¨ç²è´´åªåå®æ¹å½ä»¤
+2. éè¿ `NZ_CMD` ç´æ¥ä¼ å¥
+3. æ¬å°å·²æ `nezha.yml` æ¶ç´æ¥å¤ç¨
 
-示例：
+ç¤ºä¾ï¼
 
 ```bash
 NZ_CMD='NZ_SERVER=example.com:5555 NZ_CLIENT_SECRET=your-secret NZ_TLS=false' bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
 ```
 
-## Komari 用法
+## Komari ç¨æ³
 
-支持下面几种方式：
+æ¯æä¸é¢å ç§æ¹å¼ï¼
 
-1. 运行脚本后手动粘贴 Komari 官方安装命令
-2. 只传参数，比如 `-e https://example.com -t your-token`
-3. 通过 `KOMARI_CMD` 直接传入
-4. 本地已有 `komari-agent.args` 时直接复用
+1. è¿è¡èæ¬åæå¨ç²è´´ Komari å®æ¹å®è£å½ä»¤
+2. åªä¼ åæ°ï¼æ¯å¦ `-e https://example.com -t your-token`
+3. éè¿ `KOMARI_CMD` ç´æ¥ä¼ å¥
+4. æ¬å°å·²æ `komari-agent.args` æ¶ç´æ¥å¤ç¨
 
-示例：
+ç¤ºä¾ï¼
 
 ```bash
 KOMARI_CMD='-e https://example.com -t your-token' bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
 ```
 
-## 常用组合示例
+## æä¹åè¡ä¸º
 
-只传 Argosbx 协议变量：
+èæ¬ä¼èªå¨æ§è¡è¿äºå¨ä½ï¼
 
-```bash
-hypt="1" tupt="2" bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
-```
+- æè¿ç¨ `start.sh` åæ­¥å° `$HOME/start.sh`
+- æå½åç¯å¢åéä¿å­å° `$HOME/.container-script.env`
+- å¦æç³»ç»æ `crontab`ï¼èªå¨åå¥ `@reboot` èªå¯ä»»å¡
 
-同时传 Argosbx 变量和 Komari 参数：
-
-```bash
-hypt="1" tupt="2" KOMARI_CMD='-e https://example.com -t your-token' bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
-```
-
-同时传 Argosbx 变量和哪吒参数：
-
-```bash
-hypt="1" tupt="2" NZ_CMD='NZ_SERVER=example.com:5555 NZ_CLIENT_SECRET=your-secret NZ_TLS=false' bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
-```
-
-## 持久化行为
-
-脚本会自动执行这些动作：
-
-- 把远程 `start.sh` 同步到 `$HOME/start.sh`
-- 把当前环境变量保存到 `$HOME/.container-script.env`
-- 如果系统有 `crontab`，自动写入 `@reboot` 自启任务
-
-这样服务器重启后，之前传进去的环境变量还能继续恢复并再次执行脚本。
+è¿æ ·æå¡å¨éå¯åï¼ä¹åä¼ è¿å»çç¯å¢åéè¿è½ç»§ç»­æ¢å¤å¹¶åæ¬¡æ§è¡èæ¬ã
