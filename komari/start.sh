@@ -53,15 +53,15 @@ download_file() {
 }
 
 check_dependencies() {
-    log "SYSTEM" "Checking runtime environment"
+    log "系统" "正在检查运行环境"
 
     if command_exists unzip; then
-        log "DEPS" "unzip detected"
+        log "依赖" "已检测到 unzip"
         return
     fi
 
     if command_exists jar; then
-        log "DEPS" "unzip not found, using jar as fallback"
+        log "依赖" "未找到 unzip，改用 jar 作为解压后备方案"
         unzip() {
             local zip_file=""
             local arg=""
@@ -74,7 +74,7 @@ check_dependencies() {
             done
 
             if [ -z "$zip_file" ]; then
-                log "ERROR" "zip file argument not found"
+                log "错误" "未找到 zip 文件参数"
                 return 1
             fi
 
@@ -84,7 +84,7 @@ check_dependencies() {
         return
     fi
 
-    log "WARN" "Neither unzip nor jar was found; archive extraction may fail"
+    log "警告" "未找到 unzip 或 jar，后续解压可能失败"
 }
 
 load_custom_variables() {
@@ -92,7 +92,7 @@ load_custom_variables() {
         return
     fi
 
-    log "ENV" "Loading CUSTOM_VARIABLES"
+    log "环境" "正在加载 CUSTOM_VARIABLES"
     eval "export $CUSTOM_VARIABLES"
 }
 
@@ -117,7 +117,7 @@ detect_container_port() {
     done
 
     if [ -z "$detected_port" ]; then
-        log "PORT" "No container port detected, keeping module defaults"
+        log "端口" "未检测到容器端口，将继续使用模块默认端口"
         return
     fi
 
@@ -131,8 +131,8 @@ detect_container_port() {
         export hypt="$detected_port"
     fi
 
-    log "PORT" "Detected container port: $detected_port (source: $detected_source)"
-    log "PORT" "Exported SERVER_PORT/PORT/CONTAINER_PORT/INTERNAL_PORT"
+    log "端口" "已检测到容器端口: $detected_port (来源: $detected_source)"
+    log "端口" "已导出 SERVER_PORT/PORT/CONTAINER_PORT/INTERNAL_PORT"
 }
 
 append_export_var() {
@@ -176,14 +176,14 @@ sync_local_script() {
     local tmp_file="${LOCAL_SCRIPT}.tmp"
 
     if ! download_file "$SELF_URL" "$tmp_file"; then
-        log "SYNC" "Failed to refresh $LOCAL_SCRIPT from GitHub"
+        log "同步" "从 GitHub 刷新 $LOCAL_SCRIPT 失败"
         rm -f "$tmp_file"
         return 1
     fi
 
     mv "$tmp_file" "$LOCAL_SCRIPT"
     chmod +x "$LOCAL_SCRIPT"
-    log "SYNC" "Local startup script refreshed at $LOCAL_SCRIPT"
+    log "同步" "本地启动脚本已更新到 $LOCAL_SCRIPT"
     return 0
 }
 
@@ -197,7 +197,7 @@ install_autostart() {
     local cron_line=""
 
     if ! command_exists crontab; then
-        log "AUTOSTART" "crontab not found, skipping reboot persistence"
+        log "自启" "未找到 crontab，跳过开机自启设置"
         return
     fi
 
@@ -211,22 +211,22 @@ install_autostart() {
     } | crontab -
 
     if [ $? -eq 0 ]; then
-        log "AUTOSTART" "Reboot task refreshed"
+        log "自启" "开机自启任务已刷新"
     else
-        log "AUTOSTART" "Failed to write reboot task"
+        log "自启" "写入开机自启任务失败"
     fi
 }
 
 setup_persistence() {
     echo ""
-    log "SYSTEM" "Refreshing local script and persisted environment"
+    log "系统" "正在刷新本地脚本和持久化环境"
 
     sync_local_script || true
 
     if write_env_file; then
-        log "ENV" "Saved current environment to $ENV_FILE"
+        log "环境" "当前环境已保存到 $ENV_FILE"
     else
-        log "ENV" "Failed to save current environment"
+        log "环境" "保存当前环境失败"
     fi
 
     install_autostart
@@ -247,17 +247,28 @@ get_arch_code() {
 
 is_nezha_command() {
     local cmd_str="$1"
-    printf '%s' "$cmd_str" | grep -q 'NZ_SERVER=' && printf '%s' "$cmd_str" | grep -q 'NZ_CLIENT_SECRET='
+    if printf '%s' "$cmd_str" | grep -Eq -- '(^|[[:space:]])(-e[[:space:]]|--endpoint| -t[[:space:]]|--token)'; then
+        return 1
+    fi
+
+    printf '%s' "$cmd_str" | grep -Eq 'NZ_SERVER[[:space:]]*=' && printf '%s' "$cmd_str" | grep -Eq 'NZ_CLIENT_SECRET[[:space:]]*='
 }
 
 normalize_komari_args() {
     local raw_cmd="$1"
-    local args="$raw_cmd"
+    local args=""
 
-    if printf '%s' "$raw_cmd" | grep -q 'bash -s --'; then
-        args="$(printf '%s' "$raw_cmd" | sed 's/.*bash -s --[[:space:]]*//')"
+    if printf '%s' "$raw_cmd" | grep -Eq '(sudo[[:space:]]+)?([^[:space:]]+/)?(bash|sh)[[:space:]]+-s[[:space:]]+--'; then
+        args="$(printf '%s' "$raw_cmd" | sed -E 's/^.*(sudo[[:space:]]+)?([^[:space:]]+\/)?(bash|sh)[[:space:]]+-s[[:space:]]+--[[:space:]]*//')"
     elif printf '%s' "$raw_cmd" | grep -q 'install\.sh'; then
-        args="$(printf '%s' "$raw_cmd" | sed 's/.*install\.sh[[:space:]]*//')"
+        args="$(printf '%s' "$raw_cmd" | sed -E 's/^.*install\.sh[[:space:]]*//')"
+        if printf '%s' "$args" | grep -q '^[[:space:]]*|'; then
+            args="$(printf '%s' "$args" | sed -E 's/^[[:space:]]*\|[[:space:]]*//')"
+            args="$(printf '%s' "$args" | sed -E 's/^(sudo[[:space:]]+)?([^[:space:]]+\/)?(bash|sh)[[:space:]]+//')"
+            args="$(printf '%s' "$args" | sed -E 's/^-s[[:space:]]+--[[:space:]]*//')"
+        fi
+    else
+        args="$raw_cmd"
     fi
 
     printf '%s' "$args" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
@@ -294,23 +305,42 @@ is_komari_command() {
     return 1
 }
 
+classify_probe_command() {
+    local cmd_str="$1"
+
+    if is_nezha_command "$cmd_str"; then
+        printf 'nezha'
+        return 0
+    fi
+
+    if is_komari_command "$cmd_str"; then
+        printf 'komari'
+        return 0
+    fi
+
+    return 1
+}
+
 collect_probe_commands() {
     local line=""
     local line_index=1
+    local command_type=""
 
     echo "----------------------------------------------------"
-    echo "                 Probe Config Center                "
+    echo "                  双探针统一输入区                  "
     echo "----------------------------------------------------"
-    echo "Paste one or more probe commands."
-    echo "1. NZ_SERVER + NZ_CLIENT_SECRET => Nezha"
-    echo "2. -e/--endpoint + -t/--token => Komari"
-    echo "3. Collection stops on blank line or 1 second idle"
+    echo "这里同时接收【哪吒】和【Komari】两种探针命令："
+    echo "1. 哪吒：粘贴包含 NZ_SERVER / NZ_CLIENT_SECRET 的命令"
+    echo "2. Komari：粘贴官方安装命令，或只贴 -e/--endpoint 与 -t/--token 参数"
+    echo "3. 若命令里带 sudo / sh -s -- / bash -s --，脚本会自动忽略安装外壳"
+    echo "4. 可以连续粘贴多行，脚本会逐行自动区分并分别接收"
+    echo "5. 首行等待 ${TIMEOUT} 秒，后续空行或 1 秒无输入自动结束"
     echo "----------------------------------------------------"
-    printf "Enter probe command> "
+    printf "请输入探针命令（哪吒 / Komari）> "
 
     if ! IFS= read -r -t "$TIMEOUT" line; then
         echo ""
-        log "PROBE" "No new probe command received; using preset or local config"
+        log "探针" "未输入任何新命令，将尝试使用预设或本地配置"
         return
     fi
 
@@ -320,14 +350,16 @@ collect_probe_commands() {
             break
         fi
 
-        if is_nezha_command "$line"; then
+        command_type="$(classify_probe_command "$line" 2>/dev/null || true)"
+
+        if [ "$command_type" = "nezha" ]; then
             NEZHA_CMD_SOURCE="$line"
-            log "PROBE" "Line ${line_index} detected as Nezha"
-        elif is_komari_command "$line"; then
+            log "探针" "第 ${line_index} 条已识别为【哪吒】命令"
+        elif [ "$command_type" = "komari" ]; then
             KOMARI_CMD_SOURCE="$line"
-            log "PROBE" "Line ${line_index} detected as Komari"
+            log "探针" "第 ${line_index} 条已识别为【Komari】命令"
         else
-            log "PROBE" "Line ${line_index} not recognized and was ignored"
+            log "探针" "第 ${line_index} 条未识别，已忽略。请粘贴【哪吒】环境变量命令或【Komari】安装命令"
         fi
 
         line_index=$((line_index + 1))
@@ -358,20 +390,20 @@ ensure_nezha_binary() {
 
     arch_code="$(get_arch_code)"
     if [ -z "$arch_code" ]; then
-        log "NEZHA" "Unsupported architecture: $(uname -m)"
+        log "哪吒" "不支持当前架构: $(uname -m)"
         return 1
     fi
 
     url="https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_${arch_code}.zip"
-    log "NEZHA" "Downloading nezha-agent (${arch_code})"
+    log "哪吒" "正在下载哪吒探针 (${arch_code})"
 
     if ! download_file "$url" "$zip_file"; then
-        log "NEZHA" "Failed to download nezha-agent"
+        log "哪吒" "下载哪吒探针失败"
         return 1
     fi
 
     if ! unzip -o "$zip_file" >/dev/null 2>&1; then
-        log "NEZHA" "Failed to extract nezha-agent"
+        log "哪吒" "解压哪吒探针失败"
         rm -f "$zip_file"
         return 1
     fi
@@ -391,7 +423,7 @@ start_nezha() {
 
     if [ -z "$cmd_str" ]; then
         if [ ! -f "$config_file" ]; then
-            log "NEZHA" "No command or local config found; skipping"
+            log "哪吒" "未找到新命令或本地配置，跳过启动"
             return
         fi
 
@@ -399,7 +431,7 @@ start_nezha() {
             return
         fi
 
-        log "NEZHA" "Starting from existing local config"
+        log "哪吒" "正在使用本地 nezha.yml 启动"
         "./$bin_file" -c "$config_file" &
         return
     fi
@@ -413,7 +445,7 @@ start_nezha() {
     fi
 
     if [ -z "$server" ] || [ -z "$secret" ]; then
-        log "NEZHA" "Failed to parse NZ_SERVER or NZ_CLIENT_SECRET; skipping"
+        log "哪吒" "解析 NZ_SERVER 或 NZ_CLIENT_SECRET 失败，已跳过"
         return
     fi
 
@@ -427,8 +459,8 @@ client_secret: $secret
 tls: $tls
 EOF
 
-    log "NEZHA" "Generated $config_file"
-    log "NEZHA" "Starting nezha-agent in background"
+    log "哪吒" "已生成 $config_file"
+    log "哪吒" "正在后台启动哪吒探针"
     "./$bin_file" -c "$config_file" &
 }
 
@@ -444,15 +476,15 @@ ensure_komari_binary() {
 
     arch_code="$(get_arch_code)"
     if [ -z "$arch_code" ]; then
-        log "KOMARI" "Unsupported architecture: $(uname -m)"
+        log "Komari" "不支持当前架构: $(uname -m)"
         return 1
     fi
 
     url="https://github.com/komari-monitor/komari-agent/releases/latest/download/komari-agent-linux-${arch_code}"
-    log "KOMARI" "Downloading Komari Agent (${arch_code})"
+    log "Komari" "正在下载 Komari 探针 (${arch_code})"
 
     if ! download_file "$url" "$bin_file"; then
-        log "KOMARI" "Failed to download Komari Agent"
+        log "Komari" "下载 Komari 探针失败"
         return 1
     fi
 
@@ -470,37 +502,37 @@ start_komari() {
 
     if [ -z "$cmd_str" ]; then
         if [ ! -f "$args_file" ]; then
-            log "KOMARI" "No command or local args found; skipping"
+            log "Komari" "未找到新命令或本地参数，跳过启动"
             return
         fi
 
         final_args="$(cat "$args_file")"
-        log "KOMARI" "Starting from existing local args file"
+        log "Komari" "正在使用本地 komari-agent.args 启动"
     else
         final_args="$(normalize_komari_args "$cmd_str")"
         endpoint="$(extract_komari_value "$final_args" "-e" "--endpoint")"
         token="$(extract_komari_value "$final_args" "-t" "--token")"
 
         if [ -z "$endpoint" ]; then
-            log "KOMARI" "Failed to parse --endpoint/-e; skipping"
+            log "Komari" "解析 --endpoint/-e 失败，已跳过"
             return
         fi
 
         if [ -z "$token" ] && ! printf '%s' "$final_args" | grep -q -- '--auto-discovery'; then
-            log "KOMARI" "Missing --token/-t and --auto-discovery; skipping"
+            log "Komari" "缺少 --token/-t，且未开启 --auto-discovery，已跳过"
             return
         fi
 
         printf '%s
 ' "$final_args" > "$args_file"
-        log "KOMARI" "Saved args to $args_file"
+        log "Komari" "参数已保存到 $args_file"
     fi
 
     if ! ensure_komari_binary; then
         return
     fi
 
-    log "KOMARI" "Starting Komari Agent in background"
+    log "Komari" "正在后台启动 Komari 探针"
     sh -c ""$PWD/$bin_file" $final_args" &
 }
 
@@ -518,19 +550,19 @@ start_argosbx() {
 
     echo ""
     echo "===================================================="
-    echo ">>> [ARGOSBX] Starting main workload"
+    echo ">>> [主程序] 准备启动 Argosbx 业务"
     echo "===================================================="
 
     if [ ! -f "$ARGOS_SCRIPT_NAME" ]; then
-        log "ARGOSBX" "Local argosbx.sh not found, downloading"
+        log "Argosbx" "未找到本地 argosbx.sh，正在下载"
         if ! download_file "$ARGOS_SCRIPT_URL" "$ARGOS_SCRIPT_NAME"; then
-            log "ARGOSBX" "Failed to download argosbx.sh"
+            log "Argosbx" "下载 argosbx.sh 失败"
             return 1
         fi
     fi
 
     chmod +x "$ARGOS_SCRIPT_NAME"
-    log "ARGOSBX" "Running bash $ARGOS_SCRIPT_NAME $argos_action with inherited environment"
+    log "Argosbx" "正在加载并运行 Argosbx，所有环境变量已自动继承"
     bash "$ARGOS_SCRIPT_NAME" "$argos_action"
 }
 
@@ -539,29 +571,29 @@ show_probe_summary() {
     local komari_file_exists="$2"
 
     echo "----------------------------------------------------"
-    echo "                 Probe Config Result                "
+    echo "                  双探针识别结果                    "
     echo "----------------------------------------------------"
 
     if [ -n "$NEZHA_CMD_SOURCE" ]; then
-        log "NEZHA" "Using newly detected command"
+        log "哪吒" "已接收新的哪吒命令"
     elif [ -n "$PRESET_NEZHA_COMMAND" ]; then
         NEZHA_CMD_SOURCE="$PRESET_NEZHA_COMMAND"
-        log "NEZHA" "Using preset command"
+        log "哪吒" "使用脚本预设配置"
     elif [ "$nezha_file_exists" = "true" ]; then
-        log "NEZHA" "Using existing local config"
+        log "哪吒" "使用本地 nezha.yml 配置"
     else
-        log "NEZHA" "No usable config found; skipping"
+        log "哪吒" "未检测到可用配置，将跳过启动"
     fi
 
     if [ -n "$KOMARI_CMD_SOURCE" ]; then
-        log "KOMARI" "Using newly detected command"
+        log "Komari" "已接收新的 Komari 命令"
     elif [ -n "$PRESET_KOMARI_COMMAND" ]; then
         KOMARI_CMD_SOURCE="$PRESET_KOMARI_COMMAND"
-        log "KOMARI" "Using preset command"
+        log "Komari" "使用脚本预设配置"
     elif [ "$komari_file_exists" = "true" ]; then
-        log "KOMARI" "Using existing local args"
+        log "Komari" "使用本地 komari-agent.args 配置"
     else
-        log "KOMARI" "No usable config found; skipping"
+        log "Komari" "未检测到可用配置，将跳过启动"
     fi
 }
 
@@ -576,7 +608,7 @@ main() {
     echo "===================================================="
 
     cd "$HOME" || exit 1
-    log "INIT" "Working directory switched to $HOME"
+    log "初始化" "当前工作目录已切换到 $HOME"
 
     check_dependencies
     load_custom_variables
@@ -588,11 +620,11 @@ main() {
     argos_action="$(resolve_argos_action "$@")"
 
     if [ -n "$NEZHA_CMD_SOURCE" ]; then
-        log "CONFIG" "Detected external Nezha command from NZ_CMD"
+        log "配置" "检测到环境变量 NZ_CMD，将优先使用哪吒命令"
     fi
 
     if [ -n "$KOMARI_CMD_SOURCE" ]; then
-        log "CONFIG" "Detected external Komari command from KOMARI_CMD"
+        log "配置" "检测到环境变量 KOMARI_CMD，将优先使用 Komari 命令"
     fi
 
     if [ -f "nezha.yml" ]; then
@@ -608,17 +640,17 @@ main() {
     fi
 
     show_probe_summary "$nezha_file_exists" "$komari_file_exists"
-    log "ARGOSBX" "Resolved action: $argos_action"
+    log "Argosbx" "已确定运行模式: $argos_action"
 
     start_nezha "$NEZHA_CMD_SOURCE"
     start_komari "$KOMARI_CMD_SOURCE"
     start_argosbx "$argos_action"
 
     echo ""
-    log "KEEPALIVE" "Starting keepalive process"
+    log "保活" "正在启动后台保活进程"
     nohup sh -c 'while true; do sleep 3600; done' >/dev/null 2>&1 &
 
-    log "DONE" "All tasks were triggered"
+    log "完成" "所有任务已触发，脚本执行完毕"
 }
 
 main "$@"
