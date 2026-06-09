@@ -185,8 +185,7 @@ sync_local_script() {
 }
 
 build_cron_line() {
-    printf "@reboot /bin/bash -lc 'if [ -f \"%s\" ]; then . \"%s\"; fi; nohup /bin/bash \"%s\" >/dev/null 2>&1 &' # %s\n" \
-        "$ENV_FILE" "$ENV_FILE" "$LOCAL_SCRIPT" "$AUTOSTART_MARKER"
+    printf "%s\n" "@reboot /bin/bash -lc 'if [ -f \"$ENV_FILE\" ]; then . \"$ENV_FILE\"; fi; nohup /bin/bash \"$LOCAL_SCRIPT\" >/dev/null 2>&1 &' # $AUTOSTART_MARKER"
 }
 
 install_autostart() {
@@ -270,18 +269,22 @@ normalize_komari_args() {
     printf '%s' "$args" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+strip_shell_quotes() {
+    printf '%s' "$1" | tr -d '"' | tr -d "'"
+}
+
 extract_komari_value() {
     local args="$1"
     local short_key="$2"
     local long_key="$3"
     local value=""
 
-    value="$(printf '%s' "$args" | sed -n "s/.*${long_key}[= ][[:space:]]*\([^ ]*\).*/\1/p" | head -n 1 | sed "s/["']//g")"
+    value="$(printf '%s' "$args" | sed -n "s/.*${long_key}[= ][[:space:]]*\([^ ]*\).*/\1/p" | head -n 1)"
     if [ -z "$value" ]; then
-        value="$(printf '%s' "$args" | sed -n "s/.*${short_key}[[:space:]]\([^ ]*\).*/\1/p" | head -n 1 | sed "s/["']//g")"
+        value="$(printf '%s' "$args" | sed -n "s/.*${short_key}[[:space:]]\([^ ]*\).*/\1/p" | head -n 1)"
     fi
 
-    printf '%s' "$value"
+    strip_shell_quotes "$value"
 }
 
 is_komari_command() {
@@ -369,8 +372,10 @@ collect_probe_commands() {
 extract_assignment_value() {
     local cmd_str="$1"
     local key="$2"
+    local value=""
 
-    printf '%s' "$cmd_str" | grep -o "${key}=[^ ]*" | head -n 1 | cut -d= -f2 | sed "s/["']//g"
+    value="$(printf '%s' "$cmd_str" | grep -o "${key}=[^ ]*" | head -n 1 | cut -d= -f2)"
+    strip_shell_quotes "$value"
 }
 
 ensure_nezha_binary() {
