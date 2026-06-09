@@ -13,13 +13,13 @@
 如果服务器有 `curl`，直接执行：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/komari/start.sh)
 ```
 
 如果服务器没有 `curl`，可以使用：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/start.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/kystor/Container-script/refs/heads/main/komari/start.sh)
 ```
 
 ## 启动前传入环境变量
