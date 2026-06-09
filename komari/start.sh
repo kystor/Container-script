@@ -26,8 +26,7 @@ PORT_ENV_VARS=(
 )
 
 log() {
-    printf '>>> [%s] %s
-' "$1" "$2"
+    printf '>>> [%s] %s\n' "$1" "$2"
 }
 
 command_exists() {
@@ -146,15 +145,13 @@ append_export_var() {
 
     value="${!name}"
     printf -v escaped '%q' "$value"
-    printf 'export %s=%s
-' "$name" "$escaped" >> "$ENV_FILE"
+    printf 'export %s=%s\n' "$name" "$escaped" >> "$ENV_FILE"
 }
 
 write_env_file() {
     local var_name=""
 
-    printf '#!/usr/bin/env bash
-' > "$ENV_FILE" || return 1
+    printf '#!/usr/bin/env bash\n' > "$ENV_FILE" || return 1
     chmod 600 "$ENV_FILE" 2>/dev/null || true
 
     for var_name in "${PORT_ENV_VARS[@]}"; do
@@ -188,8 +185,8 @@ sync_local_script() {
 }
 
 build_cron_line() {
-    printf "@reboot /bin/bash -lc 'if [ -f "%s" ]; then . "%s"; fi; nohup /bin/bash "%s" >/dev/null 2>&1 &' # %s
-"         "$ENV_FILE" "$ENV_FILE" "$LOCAL_SCRIPT" "$AUTOSTART_MARKER"
+    printf "@reboot /bin/bash -lc 'if [ -f \"%s\" ]; then . \"%s\"; fi; nohup /bin/bash \"%s\" >/dev/null 2>&1 &' # %s\n" \
+        "$ENV_FILE" "$ENV_FILE" "$LOCAL_SCRIPT" "$AUTOSTART_MARKER"
 }
 
 install_autostart() {
@@ -205,8 +202,7 @@ install_autostart() {
     cron_line="$(build_cron_line)"
 
     {
-        printf '%s
-' "$current_cron" | grep -Fv "$AUTOSTART_MARKER" | grep -Fv "$LOCAL_SCRIPT" || true
+        printf '%s\n' "$current_cron" | grep -Fv "$AUTOSTART_MARKER" | grep -Fv "$LOCAL_SCRIPT" || true
         printf '%s' "$cron_line"
     } | crontab -
 
