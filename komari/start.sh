@@ -523,8 +523,7 @@ start_komari() {
             return
         fi
 
-        printf '%s
-' "$final_args" > "$args_file"
+        printf '%s\n' "$final_args" > "$args_file"
         log "Komari" "参数已保存到 $args_file"
     fi
 
@@ -533,7 +532,7 @@ start_komari() {
     fi
 
     log "Komari" "正在后台启动 Komari 探针"
-    sh -c ""$PWD/$bin_file" $final_args" &
+    sh -c "\"$PWD/$bin_file\" $final_args" &
 }
 
 resolve_argos_action() {
