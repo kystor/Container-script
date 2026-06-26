@@ -80,7 +80,8 @@ def detect_container_port() -> dict | None:
     os.environ.setdefault("SERVER_PORT", detected_port)
     os.environ.setdefault("INTERNAL_PORT", detected_port)
     os.environ.setdefault("PANEL_PORT", detected_port)
-    os.environ.setdefault("hypt", detected_port)
+    if not os.environ.get("hypt", "").strip():
+        os.environ["hypt"] = detected_port
 
     return {
         "port": detected_port,
